@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- color-scheme BEFORE any CSS: prevents the white flash on load (MDN). -->
+<meta name="color-scheme" content="light dark">
+<title>Obligation Ledger</title>
+<!-- Air-gapped: no CDN, no webfonts, no frameworks. Zero external requests. -->
+<style>
+/* ============================================================ TOKENS
+   Role-named, not appearance-named, so dark mode is a token swap and no
+   name becomes a lie. Contrast figures are computed against the surface
+   each token is actually used on; every text token clears WCAG 1.4.3 (4.5:1)
+   because nothing here reaches the 24px large-text exception.
+   Spacing: Carbon's 4px-base scale. Type: Carbon "productive" 14px base.
+   ==================================================================== */
+:root{
+  color-scheme: light dark;
+
+  --surface:#FFFFFF;
+  --surface-sunken:#F4F6F8;
+  --surface-raised:#FBFCFD;
+  --surface-hover:rgba(18,21,28,.04);        /* Material ~4% tint */
+  --surface-selected:#EDF3FB;
+
+  --text-primary:#12151C;                    /* 18.3:1 on surface */
+  --text-secondary:#3D4453;                  /*  9.9:1 */
+  --text-tertiary:#5A6272;                   /*  6.1:1 - was #767E8E @4.08:1 FAIL */
+
+  --border-subtle:#E4E7ED;
+  --border-strong:#8D8D8D;                   /* 3.35:1 - for borders that ARE the affordance */
+
+  --accent:#12151C;
+  --focus:#0B5FFF;                           /* 5.13:1 on surface */
+
+  --pass:#186B49;   --pass-bg:#E6F4EC;
+  --fail:#B3261E;   --fail-bg:#FCEBE9;
+  --comp:#1B5FA8;   --comp-bg:#E8F1FB;
+  --human:#6B3FA0;  --human-bg:#F1EAFA;      /* distinct hue: no quote provenance */
+  --warn:#8A5A00;   --warn-bg:#FDF3E0;
+
+  /* spacing - Carbon $spacing-01..10 */
+  --sp-1:2px; --sp-2:4px; --sp-3:8px; --sp-4:12px;
+  --sp-5:16px; --sp-6:24px; --sp-7:32px; --sp-8:40px;
+
+  /* type - every line-height a multiple of 4px */
+  --fs-meta:12px; --fs-dense:13px; --fs-body:14px;
+  --fs-quote:15px; --fs-h3:16px; --fs-h2:20px;
+
+  --row-h:40px;                              /* Carbon md; 64px when 2-line */
+  --chip-r:16px;
+
+  --font-sans:system-ui,-apple-system,"Segoe UI Variable Text","Segoe UI",
+              Roboto,"Helvetica Neue",Arial,"Noto Sans","Liberation Sans",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono","Segoe UI Mono",
+              Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --surface:#161B22; --surface-sunken:#0D1117; --surface-raised:#1C232C;
+    --surface-hover:rgba(230,232,238,.06); --surface-selected:#1B2735;
+    --text-primary:#E6E8EE; --text-secondary:#C3C9D4; --text-tertiary:#9AA2B1;
+    --border-subtle:#2A313C; --border-strong:#6E7681;
+    --accent:#E6E8EE; --focus:#5B9BFF;
+    --pass:#5CD6A0; --pass-bg:#10261D;
+    --fail:#FF8F85; --fail-bg:#2B1513;
+    --comp:#7FB4F5; --comp-bg:#111F2E;
+    --human:#C7A6F0; --human-bg:#1E1630;
+    --warn:#E8C170; --warn-bg:#2A2010;
+  }
+}
+
+*{box-sizing:border-box}
+html{scroll-padding-top:120px}                /* WCAG 2.4.11 / technique C43 */
+body{margin:0;background:var(--surface-sunken);color:var(--text-primary);
+  font:var(--fs-body)/20px var(--font-sans);
+  font-variant-numeric:tabular-nums lining-nums}
+.mono,code{font-family:var(--font-mono);font-variant-numeric:tabular-nums slashed-zero}
+
+/* one focus rule for the whole app: 3px, positive offset (2px inset FAILS) */
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
+  outline:3px solid var(--focus);outline-offset:2px;border-radius:3px}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* ============================================================ CHROME */
+header{background:var(--surface);border-bottom:1px solid var(--border-subtle);
+  padding:var(--sp-4) var(--sp-6);display:flex;align-items:center;gap:var(--sp-4);
+  flex-wrap:wrap;position:sticky;top:0;z-index:30}
+.brand{font-size:var(--fs-h3);font-weight:600;letter-spacing:-.2px}
+.spacer{flex:1}
+.chip{font-size:var(--fs-meta);line-height:16px;padding:var(--sp-1) var(--sp-3);
+  border-radius:var(--chip-r);border:1px solid var(--border-subtle);
+  color:var(--text-secondary);background:var(--surface-raised);white-space:nowrap;
+  display:inline-flex;align-items:center;gap:var(--sp-2)}
+.chip.ok{color:var(--pass);background:var(--pass-bg);border-color:transparent;font-weight:600}
+.chip.warn{color:var(--warn);background:var(--warn-bg);border-color:transparent;font-weight:600}
+.chip.bad{color:var(--fail);background:var(--fail-bg);border-color:transparent;font-weight:600}
+/* A LATENT selection: chosen, but not producing anything yet (replay mode).
+   Dashed border + a "queued:" prefix so the chip cannot be misread as
+   "this model made what you're looking at". */
+.chip.latent{border-style:dashed;border-color:var(--border-strong)}
+#modelprefix:not(:empty){color:var(--text-tertiary);font-weight:400;
+  text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+
+nav{display:flex;gap:var(--sp-1);padding:0 var(--sp-6);background:var(--surface);
+  border-bottom:1px solid var(--border-subtle);position:sticky;top:53px;z-index:29;
+  overflow-x:auto}
+nav button{border:0;background:0;padding:var(--sp-4) var(--sp-5);font:inherit;
+  color:var(--text-tertiary);cursor:pointer;border-bottom:2px solid transparent;
+  white-space:nowrap;min-height:24px}
+nav button:hover{color:var(--text-primary)}
+nav button[aria-current="page"]{color:var(--text-primary);font-weight:600;
+  border-bottom-color:var(--accent)}
+nav .n{margin-left:var(--sp-2);font-size:var(--fs-meta);background:var(--surface-sunken);
+  border:1px solid var(--border-subtle);border-radius:var(--chip-r);
+  padding:0 var(--sp-2);color:var(--text-secondary);font-weight:400}
+
+main{padding:var(--sp-6);max-width:1440px;margin:0 auto}
+
+/* Master-detail: list left, detail right, both scrolling independently.
+   NN/g: a non-modal side panel, because reviewers demonstrably refer to other
+   records while deciding - a modal (or a detail pane pushed below the fold)
+   hides exactly the context they need. Collapses to one column when narrow. */
+.split{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,9fr);
+  gap:var(--sp-5);align-items:start}
+.split>.pane{min-width:0}
+@media (min-width:1100px){
+  .split>.pane{position:sticky;top:112px;max-height:calc(100vh - 132px);
+    overflow-y:auto;overscroll-behavior:contain}
+}
+@media (max-width:1099px){.split{grid-template-columns:minmax(0,1fr)}}
+#detail:empty::after{content:"Select a contract to review its fields and quotes.";
+  display:block;padding:var(--sp-8) var(--sp-5);text-align:center;
+  color:var(--text-tertiary);font-size:var(--fs-dense);
+  border:1px dashed var(--border-subtle);border-radius:8px}
+.card{background:var(--surface);border:1px solid var(--border-subtle);
+  border-radius:8px;margin-bottom:var(--sp-5)}
+.card>h2,.card>h3{margin:0;padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid var(--border-subtle);font-size:var(--fs-h3);
+  font-weight:600;display:flex;align-items:center;gap:var(--sp-3);line-height:24px}
+.pad{padding:var(--sp-5)}
+.mut{color:var(--text-tertiary)}
+.sm{font-size:var(--fs-meta);line-height:16px}
+h2.grp{margin:var(--sp-6) 0 var(--sp-3);font-size:var(--fs-h3);font-weight:600;
+  display:flex;align-items:center;gap:var(--sp-3);line-height:24px}
+h2.grp:first-child{margin-top:0}
+h2.grp .n{font-size:var(--fs-meta);color:var(--text-tertiary);font-weight:400}
+/* `display:flex` above beats the `hidden` attribute's UA `display:none`, so
+   empty "Rejected 0" / "Deleted 0" groups rendered anyway. One rule fixes it
+   for every element in the app rather than per-component. */
+[hidden]{display:none !important}
+
+/* ============================================================ ROWS
+   Table-cell layout (GOV.UK task list): status never wraps under the name.
+   Whole row clickable via a transparent ::after on the single link = one
+   tab stop, no JS. Selected gets an inset bar so it survives the pointer
+   leaving; hover is scoped so it never fights selection.
+   ==================================================================== */
+.list{list-style:none;margin:0;padding:0;background:var(--surface);
+  border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden}
+.row{display:table;width:100%;position:relative;
+  padding:var(--sp-4) var(--sp-5);border-bottom:1px solid var(--border-subtle)}
+.row:last-child{border-bottom:0}
+.row .main,.row .stat{display:table-cell;vertical-align:top}
+.row .stat{text-align:right;padding-left:var(--sp-3);white-space:nowrap}
+.row a.link{color:inherit;text-decoration:none;font-weight:600}
+.row a.link::after{content:"";display:block;position:absolute;inset:0}
+.row a.link:hover{text-decoration:underline}
+.row:not([aria-selected="true"]):hover{background:var(--surface-hover)}
+.row[aria-selected="true"]{background:var(--surface-selected);
+  box-shadow:inset 3px 0 0 var(--accent)}
+.row .hint{font-size:var(--fs-meta);line-height:16px;color:var(--text-tertiary);
+  margin-top:var(--sp-1)}
+.row .done{font-size:var(--fs-dense);color:var(--text-secondary)}  /* GOV.UK: done = plain text */
+
+/* ============================================================ BADGES
+   Read-only: no border, no shadow, no pointer, no hover. Negative block
+   margins keep them from inflating row height (GOV.UK). Icon + word, never
+   colour alone: PASS and FAIL are luminance twins (1.23:1) so hue cannot be
+   the only channel (WCAG 1.4.1).
+   ==================================================================== */
+.b{display:inline-flex;align-items:center;gap:var(--sp-2);
+  padding:var(--sp-1) var(--sp-3);margin-block:-2px -3px;
+  border-radius:var(--chip-r);font-size:var(--fs-meta);line-height:16px;
+  font-weight:700;letter-spacing:.02em;max-width:190px}
+.b svg{width:14px;height:14px;flex:none}
+.b-pass{color:var(--pass);background:var(--pass-bg)}
+.b-fail{color:var(--fail);background:var(--fail-bg)}
+.b-comp{color:var(--comp);background:var(--comp-bg)}
+.b-human{color:var(--human);background:var(--human-bg)}
+.b-na{color:var(--text-secondary);background:var(--surface-sunken)}
+.b-prop{color:var(--warn);background:var(--warn-bg)}
+.b-rej{color:var(--fail);background:var(--fail-bg)}
+@media screen and (forced-colors:active){.b{font-weight:bold}}
+
+/* ============================================================ FIELDS
+   1 field : 1 quote : 1 verdict, visually bound. The quote is ALWAYS
+   visible - never behind hover or an accordion - because a receipt that
+   costs an interaction does not get checked, while its mere presence still
+   inflates confidence.
+   ==================================================================== */
+.f{border-bottom:1px solid var(--border-subtle);padding:var(--sp-4) var(--sp-5);
+  border-left:4px solid transparent}
+.f:last-of-type{border-bottom:0}
+.f.bad{border-left-color:var(--fail);background:var(--fail-bg)}
+.f.calc{border-left-color:var(--comp);border-left-style:dashed}
+.f.hum{border-left-color:var(--human)}
+.f .k{font-size:var(--fs-meta);line-height:16px;color:var(--text-tertiary);
+  text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.f .v{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
+  margin-top:var(--sp-2);font-size:var(--fs-body);font-weight:600}
+.f .why{font-size:var(--fs-meta);line-height:16px;color:var(--text-secondary);
+  margin-top:var(--sp-2)}
+.f.bad .why{color:var(--fail);font-weight:600}
+
+/* the receipt */
+blockquote.q{margin:var(--sp-3) 0 0;padding:var(--sp-3) var(--sp-4);
+  border-left:2px solid var(--border-strong);background:var(--surface-raised);
+  font-size:var(--fs-quote);line-height:24px;font-weight:400;
+  color:var(--text-secondary);max-width:68ch;text-align:left}
+blockquote.q .loc{display:block;margin-top:var(--sp-2);font-size:var(--fs-meta);
+  line-height:16px;color:var(--text-tertiary);font-family:var(--font-mono)}
+.q-more{margin-top:var(--sp-2);font-size:var(--fs-meta);background:none;
+  border:0;padding:var(--sp-1) 0;color:var(--comp);cursor:pointer;
+  text-decoration:underline;font-family:inherit;min-height:24px}
+
+/* ============================================================ ACTIONS */
+.acts{display:flex;gap:var(--sp-3);padding:var(--sp-5);
+  border-top:1px solid var(--border-subtle);align-items:center;flex-wrap:wrap;
+  background:var(--surface-raised);border-radius:0 0 8px 8px}
+button.btn{font:inherit;font-size:var(--fs-dense);font-weight:600;
+  padding:var(--sp-3) var(--sp-5);border-radius:6px;min-height:24px;
+  border:1px solid var(--border-subtle);background:var(--surface);
+  color:var(--text-primary);cursor:pointer}
+button.btn:hover{background:var(--surface-hover)}
+button.btn.pri{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+/* aria-disabled, NOT disabled: stays focusable, keeps 4.5:1, explains itself.
+   No opacity - Polaris: "Don't use opacity to communicate disabled states." */
+button.btn[aria-disabled="true"]{background:var(--surface);
+  color:var(--text-secondary);border-color:var(--border-strong);cursor:not-allowed}
+button.btn.danger{color:var(--fail);border-color:var(--border-strong)}
+
+.errsum{border:2px solid var(--fail);border-radius:6px;padding:var(--sp-4) var(--sp-5);
+  margin:var(--sp-5);background:var(--surface)}
+.errsum h3{margin:0 0 var(--sp-3);font-size:var(--fs-dense);color:var(--fail)}
+.errsum ul{margin:0;padding-left:var(--sp-5);font-size:var(--fs-dense)}
+.errsum a{color:var(--fail);font-weight:600}
+
+/* persistent scope-of-check callout - not a tooltip, not a footer */
+.legend{padding:var(--sp-3) var(--sp-5);background:var(--comp-bg);
+  border-bottom:1px solid var(--border-subtle);font-size:var(--fs-meta);
+  line-height:16px;color:var(--text-secondary)}
+.legend b{color:var(--text-primary)}
+
+/* ============================================================ TABLES */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-dense)}
+th,td{text-align:left;padding:var(--sp-3) var(--sp-5);
+  border-bottom:1px solid var(--border-subtle);line-height:20px}
+th{font-size:var(--fs-meta);text-transform:uppercase;letter-spacing:.05em;
+  color:var(--text-tertiary);font-weight:600;background:var(--surface);
+  position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums lining-nums}
+tbody tr:hover{background:var(--surface-hover)}
+caption{text-align:left;padding:0 var(--sp-5) var(--sp-3);font-size:var(--fs-meta);
+  color:var(--text-tertiary)}
+
+/* ============================================================ DEADLINES */
+.dl{display:flex;align-items:baseline;gap:var(--sp-5);padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid var(--border-subtle)}
+.dl:last-child{border-bottom:0}
+.dl:hover{background:var(--surface-hover)}
+.dl .d{font-family:var(--font-mono);font-size:var(--fs-dense);
+  color:var(--text-primary);min-width:96px;flex:none}
+.dl .k{font-size:var(--fs-meta);font-weight:700;padding:var(--sp-1) var(--sp-3);
+  border-radius:var(--chip-r);background:var(--surface-sunken);
+  color:var(--text-secondary);min-width:124px;text-align:center;flex:none}
+.dl.soon .k{background:var(--fail-bg);color:var(--fail)}
+.dl .x{flex:1;min-width:0}
+.dl .in{font-size:var(--fs-meta);line-height:16px;color:var(--text-tertiary);
+  margin-top:var(--sp-1)}
+
+/* ============================================================ ASK */
+.ask{display:flex;gap:var(--sp-3);padding:var(--sp-5)}
+.ask input{flex:1;font:inherit;padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--border-strong);border-radius:6px;
+  background:var(--surface);color:var(--text-primary);min-height:24px}
+.chips{display:flex;gap:var(--sp-2);flex-wrap:wrap;padding:0 var(--sp-5) var(--sp-5)}
+.chips button{font:inherit;font-size:var(--fs-meta);padding:var(--sp-2) var(--sp-4);
+  border-radius:var(--chip-r);border:1px solid var(--border-subtle);
+  background:var(--surface-raised);color:var(--text-secondary);cursor:pointer;
+  min-height:24px}
+
+/* ============================================================ CHAT
+   Layout rules learned the hard way: the row table used to escape its own
+   bubble because `.turn details{max-width:none}` released the 68ch measure
+   while the table itself had no width cap. Now the bubble owns the width, the
+   table scrolls INSIDE it, and prose keeps a readable measure independently.
+   ==================================================================== */
+#chatlog{padding:var(--sp-5) var(--sp-5) 0;max-height:56vh;overflow-y:auto;
+  overscroll-behavior:contain}
+#chatlog:empty::after{content:"Ask a question below, or pick one of the "
+  "suggestions.";display:block;color:var(--text-tertiary);
+  font-size:var(--fs-dense);padding:var(--sp-6) 0;text-align:center}
+.turn{margin-bottom:var(--sp-6);min-width:0}
+.turn .you{font-weight:600;font-size:var(--fs-body);margin-bottom:var(--sp-3);
+  display:flex;gap:var(--sp-3);align-items:baseline}
+.turn .you::before{content:"You";flex:none;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary)}
+
+/* The bubble is the width authority. It never exceeds the pane. */
+.turn .bot{font-size:var(--fs-body);line-height:22px;
+  padding:var(--sp-4);border-radius:8px;background:var(--surface-raised);
+  border:1px solid var(--border-subtle);border-left:3px solid var(--comp);
+  min-width:0;overflow:hidden}
+/* Prose gets a readable measure; wide children (tables) do not inherit it. */
+.turn .bot > .prose,
+.turn .bot > .who{max-width:74ch}
+.turn .bot .who{font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--text-tertiary);margin-bottom:var(--sp-3);
+  display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap}
+.turn .bot .prose{white-space:pre-wrap;overflow-wrap:break-word}
+.turn .links{margin-top:var(--sp-3);font-size:var(--fs-meta);
+  display:flex;gap:var(--sp-2) var(--sp-3);flex-wrap:wrap;align-items:baseline}
+.turn .links a{color:var(--comp)}
+
+.turn details{margin-top:var(--sp-4);min-width:0}
+.turn details summary{cursor:pointer;font-size:var(--fs-meta);color:var(--comp);
+  min-height:24px;display:inline-flex;align-items:center;gap:var(--sp-2)}
+/* The table scrolls inside the bubble instead of stretching it. */
+.turn .tablewrap{margin-top:var(--sp-3);max-width:100%;overflow-x:auto;
+  border:1px solid var(--border-subtle);border-radius:6px}
+.turn .tablewrap table{font-size:var(--fs-meta);min-width:max-content;
+  border-collapse:collapse}
+.turn .tablewrap th,.turn .tablewrap td{padding:var(--sp-2) var(--sp-3);
+  white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;
+  border-bottom:1px solid var(--border-subtle)}
+.turn .tablewrap th{position:sticky;top:0;background:var(--surface);
+  z-index:1}
+.turn .tablewrap tr:last-child td{border-bottom:0}
+.turn .thinking{color:var(--text-tertiary);font-style:italic}
+.turn .bot.err{border-left-color:var(--fail)}
+
+.chips button:hover{background:var(--surface-hover);color:var(--text-primary)}
+.sqlbox{margin:0 var(--sp-5) var(--sp-5);font-size:var(--fs-meta);line-height:16px;
+  color:var(--text-tertiary);background:var(--surface-raised);
+  border:1px solid var(--border-subtle);border-radius:6px;
+  padding:var(--sp-3) var(--sp-4);overflow:auto;max-height:140px;
+  font-family:var(--font-mono);white-space:pre-wrap;word-break:break-word}
+.turn .sqlbox{margin:var(--sp-3) 0 0}
+.up{border:2px dashed var(--border-strong);border-radius:8px;padding:var(--sp-7);
+  text-align:center;color:var(--text-secondary);margin:var(--sp-5)}
+.up.hot{border-color:var(--focus);background:var(--surface-selected);
+  color:var(--text-primary)}
+.up label{text-decoration:underline;cursor:pointer;font-weight:600}
+.fmts{font-size:var(--fs-meta);line-height:18px;color:var(--text-tertiary);
+  padding:0 var(--sp-5) var(--sp-5)}
+/* 32 extension chips must WRAP. Previously they sat on one non-wrapping line
+   and clipped ~143px past the card. Flex-wrap + gap replaces the margin hack
+   so the last row has no trailing gap either. */
+.fmts .fmtlist{display:flex;flex-wrap:wrap;gap:var(--sp-2);
+  margin:var(--sp-2) 0 var(--sp-3);padding:0;list-style:none}
+.fmts code{background:var(--surface-sunken);border:1px solid var(--border-subtle);
+  border-radius:3px;padding:1px var(--sp-2);font-size:11px;
+  font-family:var(--font-mono);white-space:nowrap}
+.fmts details summary{cursor:pointer;color:var(--comp);min-height:24px;
+  display:inline-flex;align-items:center}
+
+/* ============================================================ MODELS */
+.mdl{display:grid;grid-template-columns:auto 1fr auto;gap:var(--sp-4);
+  align-items:start;padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid var(--border-subtle);cursor:pointer}
+.mdl:last-of-type{border-bottom:0}
+.mdl:hover{background:var(--surface-hover)}
+.mdl[aria-checked="true"]{background:var(--surface-selected);
+  box-shadow:inset 3px 0 0 var(--accent)}
+.mdl input{margin:0;width:18px;height:18px;accent-color:var(--focus)}
+.mdl .nm{font-weight:600;font-size:var(--fs-body)}
+.mdl .sub{font-size:var(--fs-meta);line-height:16px;color:var(--text-tertiary);
+  margin-top:var(--sp-1)}
+.mdl .sz{font-family:var(--font-mono);font-size:var(--fs-meta);
+  color:var(--text-secondary);text-align:right;white-space:nowrap}
+.mdl .role{font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--text-tertiary)}
+
+/* ============================================================ DIALOG */
+dialog{border:1px solid var(--border-subtle);border-radius:10px;padding:0;
+  max-width:720px;width:92%;background:var(--surface);color:var(--text-primary);
+  box-shadow:0 16px 48px rgba(0,0,0,.24)}
+dialog::backdrop{background:rgba(10,12,16,.5)}
+dialog h3{margin:0;padding:var(--sp-4) var(--sp-5);
+  border-bottom:1px solid var(--border-subtle);font-size:var(--fs-h3)}
+dialog .body{padding:var(--sp-5);max-height:56vh;overflow:auto}
+dialog input,dialog select{width:100%;font:inherit;padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--border-strong);border-radius:6px;
+  background:var(--surface);color:var(--text-primary)}
+.ctx{font-size:var(--fs-quote);line-height:26px;color:var(--text-secondary);
+  white-space:pre-wrap;background:var(--surface-raised);
+  border:1px solid var(--border-subtle);border-radius:6px;padding:var(--sp-4);
+  max-width:72ch;text-align:left}
+.ctx mark{background:var(--warn-bg);color:var(--text-primary);font-weight:700;
+  box-shadow:inset 0 -2px 0 var(--warn);padding:0 2px}
+kbd{font-family:var(--font-mono);font-size:var(--fs-meta);
+  border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:4px;
+  padding:1px var(--sp-2);background:var(--surface-raised)}
+
+/* status region: polite, never steals focus (WCAG 4.1.3) */
+.toast{position:fixed;bottom:var(--sp-6);left:50%;transform:translateX(-50%);
+  background:var(--text-primary);color:var(--surface);padding:var(--sp-3) var(--sp-5);
+  border-radius:8px;font-size:var(--fs-dense);z-index:90;max-width:90vw;
+  box-shadow:0 8px 24px rgba(0,0,0,.3);display:flex;align-items:center;gap:var(--sp-4)}
+.toast button{font:inherit;font-size:var(--fs-meta);font-weight:700;background:none;
+  border:1px solid currentColor;color:inherit;border-radius:4px;
+  padding:var(--sp-1) var(--sp-3);cursor:pointer;min-height:24px}
+.empty{padding:var(--sp-7) var(--sp-5);text-align:center;color:var(--text-tertiary);
+  font-size:var(--fs-dense);line-height:20px}
+.skel{height:14px;border-radius:3px;background:var(--surface-hover);
+  margin:var(--sp-4) var(--sp-5)}
+@media (prefers-reduced-motion:no-preference){
+  .skel{animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+}
+
+/* ============================================================ TOOLTIPS
+   CSS-only, driven by [data-tip]. Shown on hover AND on keyboard focus, and
+   the same string is exposed to assistive tech via aria-describedby on the
+   trigger (see tip() in JS) -- a hover-only definition is invisible to a
+   keyboard or screen-reader user. Never used for anything load-bearing: a
+   tooltip explains a term, it never carries information needed to act.
+   ==================================================================== */
+.tip{position:relative;border-bottom:1px dotted var(--border-strong);
+  cursor:help}
+.tip::after{
+  content:attr(data-tip);
+  position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);
+  min-width:200px;max-width:320px;white-space:normal;text-align:left;
+  background:var(--text-primary);color:var(--surface);
+  font-size:var(--fs-meta);line-height:17px;font-weight:400;letter-spacing:0;
+  text-transform:none;padding:var(--sp-3) var(--sp-4);border-radius:6px;
+  box-shadow:0 6px 20px rgba(0,0,0,.3);
+  opacity:0;visibility:hidden;pointer-events:none;z-index:80}
+.tip::before{
+  content:"";position:absolute;left:50%;bottom:calc(100% + 3px);
+  transform:translateX(-50%);border:5px solid transparent;
+  border-top-color:var(--text-primary);opacity:0;visibility:hidden;z-index:81}
+.tip:hover::after,.tip:hover::before,
+.tip:focus-visible::after,.tip:focus-visible::before{opacity:1;visibility:visible}
+@media (prefers-reduced-motion:no-preference){
+  .tip::after,.tip::before{transition:opacity .12s ease .25s,visibility .12s ease .25s}
+}
+/* near the right edge the tooltip would clip out of the card */
+.tip.tip-l::after{left:auto;right:0;transform:none}
+.tip.tip-l::before{left:auto;right:12px;transform:none}
+
+/* ============================================================ BUSY STATES */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:14px;height:14px;flex:none;
+  border:2px solid var(--border-subtle);border-top-color:var(--comp);
+  border-radius:50%;vertical-align:-2px}
+@media (prefers-reduced-motion:no-preference){
+  .spinner{animation:spin .8s linear infinite}
+}
+@media (prefers-reduced-motion:reduce){
+  /* no rotation: show determinate-looking progress without motion */
+  .spinner{border-top-color:var(--comp);border-right-color:var(--comp)}
+}
+.busy{display:inline-flex;align-items:center;gap:var(--sp-3);
+  color:var(--text-secondary);font-size:var(--fs-dense)}
+/* a button mid-request: keeps its width so the layout cannot jump */
+button.btn[aria-busy="true"]{pointer-events:none;color:var(--text-tertiary)}
+button.btn[aria-busy="true"] .spinner{border-top-color:currentColor}
+/* top-of-app indeterminate bar for background work */
+#progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:100;
+  background:var(--comp);transition:width .2s ease,opacity .3s ease}
+#progress.on{width:70%}
+#progress.done{width:100%;opacity:0}
+.rowbusy{opacity:.55}
+
+/* ============================================================ DELETE */
+.dangerzone{border-top:1px solid var(--border-subtle);
+  padding:var(--sp-4) var(--sp-5);display:flex;align-items:center;
+  gap:var(--sp-3);flex-wrap:wrap;background:var(--surface)}
+button.btn.del{color:var(--fail);border-color:var(--border-strong)}
+button.btn.del:hover{background:var(--fail-bg)}
+.row.gone{opacity:.6}
+.row.gone .link{text-decoration:line-through}
+</style>
+</head><body>
+
+<div id="progress" aria-hidden="true"></div>
+<a class="sr" href="#main">Skip to main content</a>
+
+<header>
+  <span class="brand">Obligation Ledger</span>
+  <span class="chip ok" id="air">
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="14" height="14">
+      <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    air-gapped</span>
+  <button class="chip" id="modelchip" type="button" aria-haspopup="dialog">
+    <span id="modelprefix"></span>
+    <span class="mono" id="modelname">model…</span>
+    <span aria-hidden="true">▾</span>
+    <span class="sr">Change the model used for new extractions</span>
+  </button>
+  <span class="chip" id="mode"></span>
+  <span class="spacer"></span>
+  <button class="chip" id="keyshelp" type="button" aria-haspopup="dialog">
+    Shortcuts <kbd>?</kbd></button>
+  <button class="chip" id="auditchip" type="button" aria-haspopup="dialog">audit…</button>
+</header>
+
+<nav aria-label="Sections">
+  <button data-tab="queue" aria-current="page">Queue<span class="n" id="nq">0</span></button>
+  <button data-tab="register">Register<span class="n" id="nr">0</span></button>
+  <button data-tab="deadlines">Deadlines<span class="n" id="nd">0</span></button>
+  <button data-tab="ask">Ask</button>
+</nav>
+
+<main id="main">
+  <!-- ============================================== QUEUE -->
+  <section id="tab-queue">
+    <div class="split">
+      <div class="pane">
+        <div class="card">
+          <h2>Intake</h2>
+          <div class="up" id="drop">
+            Drop a contract here — or
+            <label>choose a file<input type="file" id="file" hidden></label>
+          </div>
+          <div class="fmts" id="fmts"></div>
+        </div>
+
+        <h2 class="grp" id="h-needs">Needs your review <span class="n" id="c-needs"></span></h2>
+        <ul class="list" id="q-needs" aria-labelledby="h-needs"></ul>
+
+        <h2 class="grp" id="h-done">Committed <span class="n" id="c-done"></span></h2>
+        <ul class="list" id="q-done" aria-labelledby="h-done"></ul>
+
+        <h2 class="grp" id="h-other" hidden>Rejected <span class="n" id="c-other"></span></h2>
+        <ul class="list" id="q-other" aria-labelledby="h-other" hidden></ul>
+
+        <h2 class="grp" id="h-gone" hidden>Deleted <span class="n" id="c-gone"></span></h2>
+        <ul class="list" id="q-gone" aria-labelledby="h-gone" hidden></ul>
+      </div>
+
+      <div class="pane" id="detail" aria-live="off"></div>
+    </div>
+  </section>
+
+  <!-- ============================================== REGISTER -->
+  <section id="tab-register" hidden>
+    <div class="card">
+      <h2>Committed register</h2>
+      <div class="legend">Every row was approved by a named person. Values carry
+        either a quote from the document, a code-computed date, or a reviewer's
+        correction — the detail view says which.</div>
+      <div id="register"></div>
+    </div>
+  </section>
+
+  <!-- ============================================== DEADLINES -->
+  <section id="tab-deadlines" hidden>
+    <div class="card">
+      <h2>Obligations
+        <span class="spacer"></span>
+        <label class="sm mut" for="horizon">Window</label>
+        <select id="horizon" style="font:inherit;font-size:13px;padding:4px 8px;
+          border:1px solid var(--border-strong);border-radius:6px;
+          background:var(--surface);color:var(--text-primary)">
+          <option value="90">next 90 days</option>
+          <option value="365">next year</option>
+          <option value="100000" selected>all</option>
+        </select>
+      </h2>
+      <div id="deadlines"></div>
+    </div>
+  </section>
+
+  <!-- ============================================== ASK -->
+  <section id="tab-ask" hidden>
+    <div class="card">
+      <h2>Ask the register <span class="b b-comp">READ-ONLY</span></h2>
+      <div class="legend">Ask by <b>name</b> ("tell me about Trellis") or by
+        <b>topic</b> ("anything about escrow?") — this searches every filename,
+        extracted value and full document text. Follow-ups like "what is its
+        status?" refer to the last contract discussed. The model only turns
+        rows the app fetched into a sentence: it <b>never writes SQL and never
+        sees the database</b>, and <b>every answer shows the rows it came
+        from</b>. If the model is unavailable you still get a plain summary.</div>
+      <div id="chatlog" role="log" aria-live="polite" aria-label="Conversation"></div>
+      <div class="chips" id="suggest">
+        <button type="button">tell me about Trellis</button>
+        <button type="button">anything about escrow?</button>
+        <button type="button">what renews in the next 500 days?</button>
+        <button type="button">show me the payments</button>
+        <button type="button">any unusual terms?</button>
+        <button type="button">what failed verification?</button>
+        <button type="button">what is pending approval?</button>
+        <button type="button">who are the parties?</button>
+        <button type="button">how many contracts are there?</button>
+      </div>
+      <div class="ask">
+        <label class="sr" for="q">Ask a question about the register</label>
+        <input id="q" placeholder="Ask by company, topic, or question…"
+               autocomplete="off">
+        <button class="btn pri" id="askgo" type="button">Ask</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="live" class="sr" role="status" aria-live="polite"></div>
+
+<dialog id="dlg" aria-labelledby="dlgt">
+  <h3 id="dlgt"></h3>
+  <div class="body" id="dlgb"></div>
+  <div class="acts"><span class="spacer"></span>
+    <button class="btn" id="dlgx" type="button">Close</button>
+    <button class="btn pri" id="dlgok" type="button" hidden>Save</button></div>
+</dialog>
+
+<script>
+"use strict";
+/* Single shared bearer token (D9) — declared POC-grade in the design doc. */
+const TOKEN = localStorage.getItem("ledger_token") || "demo-token";
+const H = {"Authorization":"Bearer "+TOKEN,"Content-Type":"application/json"};
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const el = (t,c,x) => { const n=document.createElement(t);
+  if(c) n.className=c; if(x!==undefined) n.textContent=x; return n; };
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+const STATE = {cid:null, meta:{}, rows:[], tab:"queue", chatContext:null};
+
+/* Verdict vocabulary. "QUOTE MATCHED" not "VERIFIED": the check is a string
+   match against the cited text, NOT a judgement that the right clause was
+   cited. Overclaiming here would be the one thing that discredits the product. */
+const ICON = {
+  PASS:'<path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/>',
+  FAIL:'<path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2"/>',
+  COMPUTED:'<path d="M3 3h10L8 8l5 5H3" fill="none" stroke="currentColor" stroke-width="1.7"/>',
+  HUMAN:'<circle cx="8" cy="5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 14a5 5 0 0 1 10 0" fill="none" stroke="currentColor" stroke-width="1.7"/>',
+  NA:'<path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="2"/>'
+};
+const VERDICT = {
+  PASS:     {cls:"b-pass", label:"QUOTE MATCHED",
+             sr:"The value appears in the quote shown. The quote was not checked for being the right clause."},
+  FAIL:     {cls:"b-fail", label:"NOT IN QUOTE",
+             sr:"The value does not appear in the text it cites. Commit is blocked."},
+  COMPUTED: {cls:"b-comp", label:"COMPUTED",
+             sr:"Calculated in code from other fields. The model did not produce this number."},
+  HUMAN:    {cls:"b-human",label:"SET BY REVIEWER",
+             sr:"Entered by a person. There is no quote provenance for this value."},
+  NA:       {cls:"b-na",   label:"NOT CHECKED",
+             sr:"Validation was disabled for this contract."}
+};
+function badge(v){
+  const m = VERDICT[v] || VERDICT.NA;
+  const b = el("span","b "+m.cls);
+  b.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">'
+              + (ICON[v]||ICON.NA) + '</svg>' + esc(m.label);
+  /* The verdict is the highest-stakes label in the product, so its definition
+     is one hover away rather than buried in the legend -- and routed through
+     tip() so the same text reaches assistive tech via aria-describedby. A
+     hover-only definition is invisible to a screen reader. */
+  return tip(b, null, GLOSSARY[m.label] || m.sr);
+}
+
+function say(msg){ $("#live").textContent = msg; }
+function toast(msg, action){
+  $$(".toast").forEach(t=>t.remove());
+  const t = el("div","toast"); t.appendChild(el("span",null,msg));
+  if(action){ const b=el("button",null,action.label); b.onclick=()=>{t.remove();action.fn();}; t.appendChild(b); }
+  document.body.appendChild(t); say(msg);
+  setTimeout(()=>t.remove(), action?9000:4000);   /* >=5s when an action is offered */
+}
+async function api(path,opt){
+  const r = await fetch(path,opt);
+  let body=null; try{ body=await r.json(); }catch{}
+  if(!r.ok) throw new Error((body&&body.detail)||(r.status+" "+r.statusText));
+  return body;
+}
+
+/* ------------------------------------------------------------- glossary
+   One definition per term, used by every tooltip so the wording can never
+   drift between screens. Each is a plain-language definition of what the
+   system actually does -- not a reassurance. */
+const GLOSSARY = {
+  "QUOTE MATCHED":
+    "The value was found inside the text the model cited for it. This does NOT "
+    + "mean the model cited the right clause — only that its own quote "
+    + "supports its own value.",
+  "NOT IN QUOTE":
+    "The value could not be found in the text the model cited. Either the "
+    + "value or the quote is wrong. This blocks the contract from being "
+    + "committed until a person resolves it.",
+  "COMPUTED":
+    "Calculated in Python from other fields — the model never sees this "
+    + "arithmetic. A notice deadline is term end minus the notice period.",
+  "SET BY REVIEWER":
+    "A person typed this value. It has no quote behind it, so it is trusted "
+    + "because a named human took responsibility, not because text was matched.",
+  "NOT CHECKED":
+    "Validation was switched off for this contract (ablation mode). Nothing "
+    + "here was verified against the document.",
+  "NEEDS REVIEW":
+    "Extracted and verified, waiting for a person to approve or reject it. "
+    + "Nothing reaches the register without that decision.",
+  "air-gapped":
+    "The model runs on this machine. No document, prompt or result is sent to "
+    + "any external service.",
+  "REPLAY":
+    "Showing a previously recorded model response instead of calling the model "
+    + "now. Genuine output, just not produced this second.",
+  "live inference":
+    "Calling the local model on this machine for each extraction.",
+  "audit chain":
+    "Every decision is appended to a log where each entry is hashed together "
+    + "with the one before it. Altering any past entry breaks verification "
+    + "from that point onward.",
+  "MODEL SUMMARY":
+    "The sentence was written by the model from the rows shown below it. The "
+    + "rows are the record; the sentence is a convenience.",
+  "COMPUTED SUMMARY":
+    "The sentence was assembled by code, not the model — either because you "
+    + "asked for it or because the model was unavailable.",
+  "notice deadline":
+    "The last day to give notice if you do not want the contract to renew. "
+    + "Computed as term end minus the notice period.",
+  "term expiry": "The day the contract's current term ends.",
+  "renewal notice": "The deadline for serving notice of non-renewal.",
+  "review flag": "An unusual term a person should look at before renewal.",
+  "obligation": "A dated commitment created when a contract was committed.",
+  "READ-ONLY":
+    "This view can only run SELECT queries. It cannot change the register."
+};
+
+/* Attach a tooltip. The text is also wired to the element for assistive tech,
+   so it is never hover-only. `key` may be an explicit string or a glossary term. */
+let tipSeq = 0;
+function tip(node, key, text){
+  const body = text || GLOSSARY[key] || GLOSSARY[(key||"").toUpperCase()];
+  if(!body) return node;
+  node.classList.add("tip");
+  node.dataset.tip = body;
+  if(!node.hasAttribute("tabindex") && !/^(A|BUTTON|INPUT|SELECT)$/.test(node.tagName))
+    node.tabIndex = 0;
+  /* Idempotent: loadMeta() re-runs, and appending a second description node
+     each time would leave a screen reader repeating the definition. */
+  let sr = node.querySelector(":scope > .sr[data-tipsr]");
+  if(!sr){
+    sr = el("span","sr");
+    sr.id = "tip"+(++tipSeq);
+    sr.dataset.tipsr = "1";
+    node.appendChild(sr);
+  }
+  sr.textContent = body;
+  node.setAttribute("aria-describedby", sr.id);
+  return node;
+}
+
+/* ------------------------------------------------------------- busy states
+   Anything that can exceed ~150ms gets a visible indicator. Three scales:
+   a spinner inside the control that started it, a skeleton where content will
+   land, and a top progress bar for background work with no obvious anchor. */
+function busy(btn, label){
+  if(!btn) return ()=>{};
+  const html = btn.innerHTML, w = btn.offsetWidth;
+  btn.style.minWidth = w + "px";          /* no layout jump */
+  btn.setAttribute("aria-busy","true");
+  btn.innerHTML = '<span class="spinner"></span> ' + esc(label || "Working…");
+  return () => {
+    btn.removeAttribute("aria-busy");
+    btn.innerHTML = html;
+    btn.style.minWidth = "";
+  };
+}
+function progress(on){
+  const p = $("#progress");
+  if(!p) return;
+  if(on){ p.className="on"; }
+  else { p.className="done"; setTimeout(()=>{ p.className=""; }, 350); }
+}
+function skeleton(host, rows){
+  host.textContent = "";
+  for(let i=0;i<(rows||3);i++) host.appendChild(el("div","skel"));
+}
+
+/* ------------------------------------------------------------- tabs */
+function show(tab){
+  STATE.tab = tab;
+  $$("nav button").forEach(b=>{
+    const on = b.dataset.tab===tab;
+    b.setAttribute("aria-current", on?"page":"false");
+  });
+  ["queue","register","deadlines","ask"].forEach(t=>$("#tab-"+t).hidden = t!==tab);
+  if(tab==="register") loadRegister();
+  if(tab==="deadlines") loadDeadlines();
+}
+$$("nav button").forEach(b=>b.onclick=()=>show(b.dataset.tab));
+
+/* ------------------------------------------------------------- header */
+async function loadMeta(){
+  const m = await api("/api/meta"); STATE.meta=m;
+  const info = m.model_info||{};
+  const name = info.label ? info.label+" · "+info.quant : m.model;
+  const chip = $("#modelchip");
+  const mode = $("#mode");
+
+  /* HONESTY: in replay mode the selection is LATENT -- extract() returns from
+     a fixture before it ever reads the model, so the chip must not imply this
+     model produced anything. Say "queued for", not the bare name. */
+  if(m.llm_mode === "replay"){
+    $("#modelname").textContent = name;
+    chip.classList.add("latent");
+    chip.title = "Selected for the next LIVE extraction. Nothing on screen was "
+      + "produced by it — the current entries are recorded output.";
+    $("#modelprefix").textContent = "queued:";
+    mode.className = "chip warn";
+    mode.textContent = "REPLAY — recorded output, not a live run";
+  } else {
+    $("#modelname").textContent = name;
+    chip.classList.remove("latent");
+    chip.title = "The model serving new extractions. Click to change.";
+    $("#modelprefix").textContent = m.llm_mode === "record" ? "recording:" : "";
+    if(m.llm_mode === "record"){
+      mode.className = "chip warn"; mode.textContent = "RECORDING to fixtures";
+    } else {
+      mode.className = "chip ok"; mode.textContent = "live inference";
+    }
+  }
+  const a=$("#auditchip");
+  a.className = m.audit_ok?"chip ok":"chip bad";
+  a.textContent = m.audit_ok?"audit chain intact":"AUDIT: "+m.audit_message;
+  /* All three header chips go through tip(), so each definition is exposed to
+     assistive tech as well as on hover. tip() is idempotent, which matters
+     because loadMeta() re-runs. */
+  tip(a, null, GLOSSARY["audit chain"]).classList.add("tip-l");
+  tip($("#air"), "air-gapped");
+  tip($("#mode"), null, m.llm_mode === "live"
+      ? GLOSSARY["live inference"] : GLOSSARY.REPLAY).classList.add("tip-l");
+  /* Show the handful people actually drop, and put the full 32 behind a
+     disclosure. A wall of chips is noise on the screen you look at most. */
+  const COMMON = ["pdf","docx","doc","txt","rtf","odt","xlsx","eml","zip"];
+  const common = COMMON.filter(f=>m.formats.includes(f));
+  const rest = m.formats.filter(f=>!common.includes(f));
+  const chips = list => '<span class="fmtlist">'
+    + list.map(f=>"<code>."+esc(f)+"</code>").join("") + "</span>";
+  $("#fmts").innerHTML =
+    "Commonly dropped:" + chips(common)
+    + '<details><summary>All ' + m.formats.length
+    + ' accepted formats</summary>' + chips(m.formats) + '</details>'
+    + "A scanned page with no text layer is refused with a reason — it is not "
+    + "ingested as empty text, because an empty document makes every quote "
+    + "check pass trivially.";
+}
+
+/* ------------------------------------------------------------- queue */
+function factLine(r){
+  const bits=[];
+  if(r.quoted)    bits.push(r.quoted+" quoted");
+  if(r.computed)  bits.push(r.computed+" computed");
+  if(r.human_set) bits.push(r.human_set+" set by reviewer");
+  if(r.failures)  bits.push(r.failures+" not in quote");
+  return bits.join(" · ");      /* counts, never a score */
+}
+function metaLine(r){
+  const bits=["."+(r.fmt||"?")];
+  if(r.converted_via) bits.push("via "+r.converted_via);
+  if(!r.validated) bits.push("validation disabled");
+  if(r.llm_mode && r.llm_mode!=="live") bits.push(r.llm_mode);
+  if(r.model) bits.push(r.model.split("/").pop());
+  return bits.join(" · ");
+}
+function queueRow(r, done){
+  const li = el("li","row"+(r.archived?" gone":""));
+  li.setAttribute("aria-selected", r.id===STATE.cid ? "true":"false");
+  const main = el("div","main");
+  const a = el("a","link", r.filename);
+  a.href="#c"+r.id;
+  a.setAttribute("aria-describedby","st"+r.id);
+  main.appendChild(a);
+  main.appendChild(el("div","hint", metaLine(r)));
+  const facts = factLine(r);
+  if(facts) main.appendChild(el("div","hint", facts));
+  li.appendChild(main);
+
+  const st = el("div","stat"); st.id="st"+r.id;
+  if(r.archived){
+    st.appendChild(tip(el("span","done","Deleted"), null,
+      "Hidden from the register, deadlines and Ask. Nothing was erased — open "
+      + "it to restore it."));
+  } else if(done){
+    /* GOV.UK: completed rows are plain text, no chip — colour is reserved for
+       the rows that still need a human, so scanning finds them. */
+    st.appendChild(el("span","done", r.status==="REJECTED"?"Rejected":"Committed"));
+  } else if(r.failures>0){
+    st.appendChild(badge("FAIL"));
+  } else {
+    const b = tip(el("span","b b-prop","NEEDS REVIEW"), "NEEDS REVIEW");
+    b.classList.add("tip-l");
+    st.appendChild(b);
+  }
+  li.appendChild(st);
+  a.onclick = e=>{ e.preventDefault(); openContract(r.id); };
+  return li;
+}
+async function loadQueue(){
+  let rows;
+  try{ rows = await api("/api/queue"); }
+  catch(e){
+    /* A transient failure must not wipe a list the user is reading. The 15s
+       poll competing with a long upload used to blank the queue and replace it
+       with "Failed to fetch"; now the last good render stays and a small note
+       says the refresh missed. */
+    if(STATE.rows && STATE.rows.length){
+      say("Queue refresh failed: "+e.message);
+      const warn = $("#q-stale") || el("li","empty");
+      warn.id = "q-stale";
+      warn.textContent = "Last refresh failed ("+e.message
+                       + "). Showing the previous list.";
+      if(!warn.parentNode) $("#q-needs").appendChild(warn);
+      return;
+    }
+    $("#q-needs").innerHTML="";
+    $("#q-needs").appendChild(
+      el("li","empty","Could not load the queue: "+e.message));
+    return;
+  }
+  STATE.rows = rows.filter(r=>!r.archived);
+  const live  = STATE.rows;
+  const needs = live.filter(r=>r.status==="PROPOSED");
+  const done  = live.filter(r=>r.status==="COMMITTED");
+  const other = live.filter(r=>r.status==="REJECTED");
+  const gone  = rows.filter(r=>r.archived);
+
+  /* The count lives in the heading it actually counts — this is the fix for
+     "Awaiting review 1" sitting above four rows, three of them committed. */
+  $("#nq").textContent = needs.length;
+  $("#c-needs").textContent = needs.length ? needs.length+" waiting" : "";
+  $("#c-done").textContent  = done.length;
+  $("#c-other").textContent = other.length;
+  $("#c-gone").textContent  = gone.length;
+
+  const fill=(sel,list,isDone,emptyMsg)=>{
+    const box=$(sel); box.textContent="";
+    if(!list.length){ box.appendChild(el("li","empty",emptyMsg)); return; }
+    list.forEach(r=>box.appendChild(queueRow(r,isDone)));
+  };
+  fill("#q-needs", needs, false,
+       "Nothing waiting. Drop a contract above and it appears here once extracted.");
+  fill("#q-done", done, true, "Nothing committed yet.");
+  $("#h-other").hidden = $("#q-other").hidden = other.length===0;
+  if(other.length) fill("#q-other", other, true, "");
+  /* Deleted contracts stay listed, collapsed, so a soft delete is visibly
+     reversible rather than looking like data loss. */
+  $("#h-gone").hidden = $("#q-gone").hidden = gone.length===0;
+  if(gone.length) fill("#q-gone", gone, true, "");
+
+  /* The OTHER tab badges must move too. Every state change already calls
+     loadQueue(), so refreshing them here is what keeps "Register 8" from
+     surviving a delete. A number that lies is worse than no number. */
+  try{
+    const [reg, dl] = await Promise.all([
+      api("/api/register"), api("/api/deadlines?days=100000")]);
+    $("#nr").textContent = reg.length;
+    $("#nd").textContent = dl.length;
+  }catch{ /* never let a badge refresh break the queue render */ }
+}
+
+/* ------------------------------------------------------------- detail */
+function fieldBlock(cid, f){
+  const v = f.validator;
+  const wrap = el("div","f"+(v==="FAIL"?" bad":v==="COMPUTED"?" calc":v==="HUMAN"?" hum":""));
+  wrap.id = "f-"+cid+"-"+f.field;
+  wrap.appendChild(el("div","k", f.field.replace(/_/g," ")));
+  const val = el("div","v");
+  val.appendChild(el("span",null, f.value===null||f.value===""?"—":f.value));
+  val.appendChild(badge(v));
+  wrap.appendChild(val);
+
+  if(f.source_span){
+    const bq = el("blockquote","q");
+    /* Verbatim, never truncated: the instant the shown text is not an exact
+       substring, the receipt stops being falsifiable. Wrap, don't rewrite. */
+    bq.appendChild(document.createTextNode("\u201C"+f.source_span+"\u201D"));
+    const loc = el("span","loc",
+      (f.page?"p."+f.page:"") + (f.span_start!=null
+        ? (f.page?" · ":"")+"chars "+f.span_start+"\u2013"+f.span_end : ""));
+    bq.appendChild(loc);
+    wrap.appendChild(bq);
+    if(f.span_start!=null){
+      const more = el("button","q-more","Show this quote in the document");
+      more.type="button";
+      more.onclick = ()=>showContext(cid,f);
+      wrap.appendChild(more);
+    }
+  }
+  if(f.note) wrap.appendChild(el("div","why", f.note));
+  /* Correction is reachable FROM the field, so the reader never loses the
+     1 field : 1 quote binding by re-picking it from a list. */
+  if(f.validator==="FAIL" || f.validator==="HUMAN"){
+    const fix = el("button","q-more",
+      f.validator==="FAIL" ? "Correct this value" : "Change this value");
+    fix.type="button";
+    fix.onclick=()=>editField(cid,f);
+    wrap.appendChild(fix);
+  }
+  return wrap;
+}
+
+async function openContract(cid){
+  STATE.cid = cid;
+  let d;
+  try{ d = await api("/api/contract/"+cid); }
+  catch(e){ toast("Could not open contract: "+e.message); return; }
+  const c=d.contract, fields=d.fields;
+  const bad = fields.filter(f=>f.validator==="FAIL");
+  const host=$("#detail"); host.textContent="";
+
+  const card = el("div","card"); card.id="c"+cid;
+  const h = el("h2"); h.appendChild(el("span",null,c.filename));
+  if(!c.validated) h.appendChild(el("span","b b-na","VALIDATION DISABLED"));
+  if(c.llm_mode && c.llm_mode!=="live")
+    h.appendChild(el("span","b b-prop", c.llm_mode.toUpperCase()));
+  h.appendChild(el("span","spacer"));
+  h.appendChild(el("span","b "+(c.status==="COMMITTED"?"b-pass":
+    c.status==="REJECTED"?"b-rej":"b-prop"), c.status));
+  card.appendChild(h);
+
+  /* Persistent scope-of-check statement. Not a tooltip, not a footer: a
+     disclaimer people can't see is a disclaimer that doesn't work. */
+  const lg = el("div","legend");
+  lg.innerHTML = "<b>QUOTE MATCHED</b> means the value appears in the text it "
+    + "cites — not that the model cited the right clause. "
+    + "<b>COMPUTED</b> was calculated in code. "
+    + "<b>SET BY REVIEWER</b> has no quote. Check each quote before approving.";
+  card.appendChild(lg);
+
+  if(c.note){
+    const n=el("div","pad sm"); n.style.color="var(--fail)"; n.textContent=c.note;
+    card.appendChild(n);
+  }
+
+  fields.forEach(f=>card.appendChild(fieldBlock(cid,f)));
+
+  if(d.obligations.length){
+    const o=el("div","pad sm mut","Obligations created: "
+      + d.obligations.map(x=>x.kind.replace(/_/g," ")+" "+x.due_date).join("  ·  "));
+    card.appendChild(o);
+  }
+  try{
+    const outs = await api("/api/outputs/"+cid);
+    if(outs.length){
+      const o=el("div","pad sm"); o.appendChild(el("span","mut","Outputs: "));
+      outs.forEach((x,i)=>{
+        if(i) o.appendChild(el("span","mut"," · "));
+        const a=el("a",null,x.kind); a.href="/api/outputs/"+cid+"/"+encodeURIComponent(x.name);
+        a.target="_blank"; a.style.color="var(--comp)"; o.appendChild(a);
+      });
+      card.appendChild(o);
+    }
+  }catch{}
+
+  /* GOV.UK error summary: shown whenever anything failed, even just one,
+     linking to each offending field with the same wording as the field note. */
+  if(bad.length){
+    const es = el("div","errsum"); es.id="blk"+cid; es.setAttribute("role","alert");
+    es.appendChild(el("h3",null,"There is a problem"));
+    const ul=el("ul");
+    bad.forEach(f=>{
+      const li=el("li"); const a=el("a",null,
+        f.field.replace(/_/g," ")+" — "+(f.note||"value not found in its own quote"));
+      a.href="#f-"+cid+"-"+f.field;
+      a.onclick=e=>{e.preventDefault();
+        const t=$("#f-"+cid+"-"+CSS.escape(f.field))||document.getElementById("f-"+cid+"-"+f.field);
+        if(t){ t.scrollIntoView({block:"center"}); t.querySelector(".q-more")?.focus(); }};
+      li.appendChild(a); ul.appendChild(li);
+    });
+    es.appendChild(ul);
+    card.appendChild(es);
+  }
+
+  const acts = el("div","acts");
+  if(c.status==="PROPOSED"){
+    const rej=el("button","btn danger","Reject"); rej.type="button";
+    rej.onclick=()=>decide(cid,"reject",rej);
+    acts.appendChild(rej);
+    acts.appendChild(el("span","spacer"));
+    if(bad.length) acts.appendChild(el("span","sm",
+      bad.length+(bad.length>1?" fields are":" field is")+" not supported by its quote"));
+    /* Label never mutates (4.1.2). aria-disabled, not disabled: focusable,
+       full contrast, and it explains itself when clicked. */
+    const ap=el("button","btn pri","Approve and commit"); ap.type="button";
+    if(bad.length){
+      ap.setAttribute("aria-disabled","true");
+      ap.setAttribute("aria-describedby","blk"+cid);
+    }
+    ap.onclick=()=>{
+      if(ap.getAttribute("aria-disabled")==="true"){
+        const first=$("#blk"+cid+" a");
+        toast("Blocked: resolve "+bad.length+" unsupported value"
+              +(bad.length>1?"s":"")+" first");
+        if(first) first.focus();
+        return;
+      }
+      decide(cid,"approve");
+    };
+    acts.appendChild(ap);
+  } else {
+    acts.appendChild(el("span","sm mut",
+      c.status==="COMMITTED"
+        ? "Committed by "+(c.decided_by||"—")+" on "+(c.decided_at||"").slice(0,10)
+        : "Rejected on "+(c.decided_at||"").slice(0,10)));
+  }
+  card.appendChild(acts);
+
+  /* Delete lives in its own strip below the decision actions, so it can never
+     be hit while reaching for Approve. It is a SOFT delete: the audit chain is
+     append-only, so the contract is hidden and the act is recorded, never
+     erased. That is stated on the button and in the confirmation. */
+  const dz = el("div","dangerzone");
+  if(c.archived){
+    dz.appendChild(tip(el("span","sm mut",
+      "Deleted by "+(c.archived_by||"—")+" on "+(c.archived_at||"").slice(0,10)),
+      null, "This contract is hidden from the register, the deadline board and "
+          + "the Ask tab. Its extraction and its audit records still exist."));
+    dz.appendChild(el("span","spacer"));
+    const rs=el("button","btn","Restore"); rs.type="button";
+    rs.onclick=async()=>{
+      const done=busy(rs,"Restoring…");
+      try{
+        await api("/api/delete",{method:"POST",headers:H,
+          body:JSON.stringify({id:cid,restore:true,who:"partner"})});
+        toast("Restored · it is back in the register and on the deadline board");
+        openContract(cid); await loadQueue();
+      }catch(e){ toast("Could not restore: "+e.message); }
+      finally{ done(); }
+    };
+    dz.appendChild(rs);
+  } else {
+    dz.appendChild(tip(el("span","sm mut","Remove from the working views"),
+      null, "A soft delete. The contract is hidden and any open obligations "
+          + "are closed, but nothing is erased — the audit chain is "
+          + "append-only, and the delete itself is recorded in it."));
+    dz.appendChild(el("span","spacer"));
+    const dl=el("button","btn del","Delete"); dl.type="button";
+    dl.onclick=()=>confirmDelete(cid, c);
+    dz.appendChild(dl);
+  }
+  card.appendChild(dz);
+  host.appendChild(card);
+  loadQueue();
+  say(c.filename+" opened. "+fields.length+" fields, "+bad.length+" not supported by a quote.");
+  /* Two-pane layout puts the detail beside the list, so no scroll is needed.
+     Only reveal it when the panes have collapsed into one column. */
+  if(window.matchMedia("(max-width:1099px)").matches)
+    card.scrollIntoView({behavior:"smooth",block:"nearest"});
+  else
+    $("#detail").scrollTop = 0;
+}
+
+async function showContext(cid,f){
+  let r;
+  try{ r = await api(`/api/contract/${cid}/text?start=${f.span_start}&end=${f.span_end}`); }
+  catch(e){ toast("Could not load the document text: "+e.message); return; }
+  const pre=r.text.slice(0, r.quote_start-r.start);
+  const mid=r.text.slice(r.quote_start-r.start, r.quote_end-r.start);
+  const post=r.text.slice(r.quote_end-r.start);
+  $("#dlgt").textContent = f.field.replace(/_/g," ")
+    + (f.page?" · page "+f.page:"") + " · chars "+f.span_start+"–"+f.span_end;
+  $("#dlgb").innerHTML =
+    '<p class="sm mut">The highlighted text is the exact quote cited for this '
+    + 'value, shown inside the surrounding document text so you can judge '
+    + 'whether the context supports it.</p><div class="ctx">'
+    + esc(pre)+"<mark>"+esc(mid)+"</mark>"+esc(post)+"</div>";
+  $("#dlgok").hidden=true;
+  $("#dlg").showModal();
+}
+
+/* Inline correction, opened from the offending field (not a field picker) */
+function editField(cid, f){
+  $("#dlgt").textContent = "Correct: "+f.field.replace(/_/g," ");
+  $("#dlgb").innerHTML =
+    '<p class="sm mut">Your value replaces the model\'s. It will be recorded as '
+    + '<b>SET BY REVIEWER</b> — not as quote-matched, because a value you type '
+    + 'has no quote behind it. Any date computed from it is recalculated in code.</p>'
+    + '<blockquote class="q">\u201C'+esc(f.source_span||"")+'\u201D</blockquote>'
+    + '<p style="margin-top:16px"><label class="sm mut" for="ev">Corrected value</label>'
+    + '<input id="ev" value="'+esc(f.value||"")+'"></p>';
+  $("#dlgok").hidden=false;
+  $("#dlgok").textContent="Save correction";
+  $("#dlgok").onclick=async()=>{
+    const value=$("#ev").value.trim();
+    if(!value){ toast("Enter a value"); return; }
+    $("#dlg").close();
+    try{
+      const r=await api("/api/decide",{method:"POST",headers:H,
+        body:JSON.stringify({id:cid,action:"edit",field:f.field,value,who:"partner"})});
+      toast(r.recomputed ? "Saved · deadline recomputed to "+r.recomputed : "Saved");
+      openContract(cid);
+    }catch(e){ toast("Failed: "+e.message); }
+  };
+  $("#dlg").showModal();
+  setTimeout(()=>$("#ev")?.select(),50);
+}
+
+async function decide(cid, action, btn){
+  if(action==="approve"){ return confirmCommit(cid); }
+  const done=busy(btn, action==="reject" ? "Rejecting…" : "Saving…");
+  progress(true);
+  try{
+    const r=await api("/api/decide",{method:"POST",headers:H,
+      body:JSON.stringify({id:cid,action,who:"partner"})});
+    toast("Marked "+r.status);
+    openContract(cid); loadMeta();
+  }catch(e){ toast("Blocked: "+e.message); }
+  finally{ done(); progress(false); }
+}
+
+/* Delete confirmation. Names what will actually happen (NN/g: never "are you
+   sure?"), and is explicit that this hides rather than erases -- a user who
+   believes they destroyed evidence would be misinformed about their own
+   audit trail. */
+async function confirmDelete(cid, c){
+  const committed = c.status === "COMMITTED";
+  let obs = 0;
+  try{
+    const d = await api("/api/contract/"+cid);
+    obs = (d.obligations||[]).filter(o=>o.status==="OPEN").length;
+  }catch{}
+  $("#dlgt").textContent = "Delete " + c.filename + "?";
+  $("#dlgb").innerHTML =
+    "<p class=\"sm\">This <b>hides</b> the contract from the queue, the "
+    + "register, the deadline board and the Ask tab"
+    + (obs ? ", and closes <b>" + obs + " open obligation"
+             + (obs>1?"s":"") + "</b>" : "")
+    + ".</p>"
+    + "<p class=\"sm\">Nothing is erased. The extraction, its quotes and every "
+    + "audit record stay on disk, and the deletion itself is written into the "
+    + "audit chain under your name — the chain is append-only, so it cannot be "
+    + "rewritten. You can restore this contract afterwards.</p>"
+    + (committed
+       ? "<p class=\"sm\" style=\"color:var(--fail);font-weight:600\">This "
+         + "contract was approved and committed. Someone may be relying on its "
+         + "dates.</p>"
+       : "");
+  $("#dlgok").hidden=false;
+  $("#dlgok").textContent = committed ? "Delete and close its dates" : "Delete";
+  $("#dlgok").onclick=async()=>{
+    const done=busy($("#dlgok"),"Deleting…");
+    try{
+      const r=await api("/api/delete",{method:"POST",headers:H,
+        body:JSON.stringify({id:cid,who:"partner",force:committed})});
+      $("#dlg").close();
+      toast("Deleted · "+(r.obligations_closed||0)+" obligation(s) closed",
+            {label:"Undo", fn:async()=>{
+              try{
+                await api("/api/delete",{method:"POST",headers:H,
+                  body:JSON.stringify({id:cid,restore:true,who:"partner"})});
+                toast("Restored"); openContract(cid); await loadQueue();
+              }catch(e){ toast("Could not restore: "+e.message); }
+            }});
+      openContract(cid); await loadQueue(); loadMeta();
+    }catch(e){
+      $("#dlg").close();
+      toast("Could not delete: "+e.message);
+    }finally{ done(); }
+  };
+  $("#dlg").showModal();
+  $("#dlgx").focus();          /* never default-focus the destructive action */
+}
+
+
+/* Commit confirmation: names specifics, no Yes/No, no default focus on the
+   irreversible action (NN/g), and satisfies WCAG 3.3.4 "Confirmed" for a
+   legal commitment. */
+async function confirmCommit(cid){
+  const d = await api("/api/contract/"+cid);
+  const f = d.fields;
+  const counts=[["PASS","quote-matched"],["COMPUTED","computed in code"],
+                ["HUMAN","set by you"]]
+    .map(([v,label])=>{const n=f.filter(x=>x.validator===v).length;
+                       return n?n+" "+label:null;}).filter(Boolean);
+  $("#dlgt").textContent = "Commit "+f.length+" fields to the register?";
+  $("#dlgb").innerHTML =
+    "<p><b>"+esc(d.contract.filename)+"</b></p>"
+    + "<p class=\"sm\">"+esc(counts.join(" · "))+"</p>"
+    + "<p class=\"sm mut\" style=\"margin-top:12px\">This writes to the register "
+    + "and the audit chain under your name, and creates the calendar and memo "
+    + "artifacts. A quote match means the value appears in the text it cites — "
+    + "it does not mean the right clause was cited.</p>";
+  $("#dlgok").hidden=false;
+  $("#dlgok").textContent="Commit to register";
+  $("#dlgok").onclick=async()=>{
+    const done=busy($("#dlgok"),"Committing…");
+    try{
+      const r=await api("/api/decide",{method:"POST",headers:H,
+        body:JSON.stringify({id:cid,action:"approve",who:"partner"})});
+      $("#dlg").close();
+      toast("Committed · "+(r.obligations||[]).length+" obligation(s) created"
+            + (r.memo ? " · memo written" : ""));
+      openContract(cid); loadMeta();
+    }catch(e){ $("#dlg").close(); toast("Blocked: "+e.message); }
+    finally{ done(); }
+  };
+  $("#dlg").showModal();
+  $("#dlgx").focus();          /* never default-focus the irreversible action */
+}
+
+/* ------------------------------------------------------------- register */
+async function loadRegister(){
+  const box=$("#register");
+  skeleton(box,4);
+  const rows = await api("/api/register");
+  $("#nr").textContent = rows.length;
+  box.textContent="";
+  if(!rows.length){ box.appendChild(el("div","empty",
+    "Nothing committed yet. Approve a contract in the Queue and it appears here."));
+    return; }
+  const t=el("table");
+  t.innerHTML='<caption>Showing '+rows.length+' committed contract'
+    +(rows.length>1?'s':'')+'</caption>'
+    +'<thead><tr><th>Contract</th><th class="num">Term end</th>'
+    +'<th class="num">Notice deadline</th><th class="num">Payment</th>'
+    +'<th>Approved by</th></tr></thead>';
+  const tb=el("tbody");
+  rows.forEach(r=>{
+    const tr=el("tr"); tr.style.cursor="pointer";
+    tr.appendChild(el("td",null,r.filename));
+    tr.appendChild(el("td","num mono",r.term_end||"—"));
+    tr.appendChild(el("td","num mono",r.notice_deadline||"—"));
+    tr.appendChild(el("td","num mono",r.payment||"—"));
+    tr.appendChild(el("td",null,(r.decided_by||"—")+" · "+(r.decided_at||"").slice(0,10)));
+    tr.onclick=()=>{ show("queue"); openContract(r.id); };
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb); box.appendChild(t);
+}
+
+/* ------------------------------------------------------------- deadlines */
+async function loadDeadlines(){
+  const days=$("#horizon").value;
+  const rows=await api("/api/deadlines?days="+days);
+  $("#nd").textContent=rows.length;
+  const box=$("#deadlines"); box.textContent="";
+  if(!rows.length){ box.appendChild(el("div","empty",
+    days==="100000" ? "No open obligations. They are created when a contract is committed."
+                    : "No obligations fall in this window. Widen it above."));
+    return; }
+  const today=new Date();
+  rows.forEach(r=>{
+    const due=new Date(r.due_date+"T00:00:00");
+    const inDays=Math.round((due-today)/86400000);
+    const d=el("div","dl"+(inDays<=60?" soon":""));
+    d.appendChild(el("span","d",r.due_date));
+    d.appendChild(tip(el("span","k",r.kind.replace(/_/g," ")),
+                      r.kind.replace(/_/g," ")));
+    const x=el("div","x");
+    x.appendChild(el("div",null,r.filename));
+    x.appendChild(el("div","in",
+      (inDays>=0?"in "+inDays+" days":Math.abs(inDays)+" days ago")
+      +(r.detail?" · "+r.detail:"")));
+    d.appendChild(x); box.appendChild(d);
+  });
+}
+$("#horizon").onchange=loadDeadlines;
+
+/* ------------------------------------------------------------- chat
+   Prose from the model, ALWAYS shipped with the rows it was derived from and
+   the SQL that fetched them. The prose is a summary; the rows are the record.
+   A model-authored sentence must never be the only thing on screen. */
+/* Only the columns worth showing in a chat bubble, in a sensible order. The
+   raw row had 13 columns including two ISO timestamps, which is a data dump,
+   not evidence. The full record is one click away in the review pane. */
+const ROW_COLS = ["filename", "field", "value", "status", "validator",
+                  "kind", "due_date", "term_end", "effective_date", "payment",
+                  "governing_law", "parties", "page", "n", "detail",
+                  "archived_by", "note", "reason"];
+const NUMERIC = /date|amount|payment|^n$|days/;
+
+function rowTable(rows){
+  const present = Object.keys(rows[0]);
+  let cols = ROW_COLS.filter(c => present.includes(c));
+  /* Never silently hide a column the answer might rest on: anything not in the
+     preferred list is appended, except the noisy internals. */
+  const HIDE = new Set(["id", "ingested_at", "decided_at", "doctext",
+                        "source_span", "fmt"]);
+  cols = cols.concat(present.filter(c => !cols.includes(c) && !HIDE.has(c)));
+  if(!cols.length) cols = present;
+
+  const wrap = el("div","tablewrap");
+  const t = el("table");
+  t.innerHTML = "<thead><tr>" + cols.map(c =>
+    "<th" + (NUMERIC.test(c) ? ' class="num"' : "") + ">"
+    + esc(c.replace(/_/g," ")) + "</th>").join("") + "</tr></thead>";
+  const tb = el("tbody");
+  rows.forEach(row => {
+    const tr = el("tr");
+    cols.forEach(c => {
+      const v = row[c];
+      const text = (v === null || v === undefined || v === "")
+                 ? "\u2014" : String(v);
+      const td = el("td", NUMERIC.test(c) ? "num mono" : null,
+                    text.length > 90 ? text.slice(0,88) + "\u2026" : text);
+      if(text.length > 90) td.title = text;      /* full value on hover */
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  wrap.appendChild(t);
+  return wrap;
+}
+
+async function doAsk(q){
+  if(!q) return;
+  const log=$("#chatlog");
+  const turn=el("div","turn");
+  turn.appendChild(el("div","you",q));
+  const bot=el("div","bot");
+  const wait=el("div","busy");
+  wait.appendChild(el("span","spinner"));
+  wait.appendChild(el("span",null,"Searching the contracts\u2026"));
+  bot.appendChild(wait);
+  turn.appendChild(bot);
+  log.appendChild(turn);
+  log.scrollTop=log.scrollHeight;
+  $("#q").value="";
+  const undo=busy($("#askgo"),"Asking\u2026");
+  progress(true);
+
+  let r;
+  /* Carry only the contract the last turn was about, so "what is its status?"
+     resolves. No transcript is sent to the server or the model. */
+  const ctx = STATE.chatContext ? "&context="+STATE.chatContext : "";
+  try{ r=await api("/api/ask?q="+encodeURIComponent(q)+ctx); }
+  catch(e){
+    bot.textContent="";
+    bot.classList.add("err");
+    bot.appendChild(el("div","prose","Could not answer: "+e.message));
+    undo(); progress(false);
+    return;
+  }
+  undo(); progress(false);
+  bot.textContent="";
+
+  /* Remember what this turn was about so the next one can say "it". */
+  if(r.contract_id) STATE.chatContext = r.contract_id;
+
+  const who=el("div","who");
+  who.appendChild(el("span",null,"Register"));
+  /* WHICH ENGINE ANSWERED. Retrieval and SQL are different kinds of answer --
+     retrieval reads the documents, SQL reads the extracted register -- and the
+     user must be able to tell which they got. */
+  if(r.engine){
+    /* Three genuinely different engines. Naming them precisely matters: an
+       exact word scan is NOT semantic retrieval, and letting the UI blur them
+       would let a reader believe a topic was searched for when only a literal
+       string was. */
+    const ENG = {
+      rag: ["RETRIEVED", "b-pass",
+            "Ranked passages retrieved from the document text by the retrieval "
+            + "service, shown below with their pages."],
+      fulltext: ["WORD MATCH", "b-prop",
+            "An EXACT word match over the stored document text, not a semantic "
+            + "search. A contract covering this topic in different words would "
+            + "not be found. Semantic retrieval is not installed yet."],
+      register: ["FROM THE REGISTER", "b-comp",
+            "Answered from the structured register (extracted fields, dates "
+            + "and statuses) with a read-only SQL query."]
+    };
+    const spec = ENG[r.engine] || ENG.register;
+    who.appendChild(tip(el("span","b "+spec[1], spec[0]), null, spec[2]));
+  }
+  const label = r.source==="model" ? "MODEL SUMMARY" : "COMPUTED SUMMARY";
+  who.appendChild(tip(
+    el("span","b "+(r.source==="model"?"b-comp":"b-na"), label), label));
+  if(r.count) who.appendChild(el("span","sm mut",
+    r.count+(r.engine==="rag" ? " passage" : " row")+(r.count>1?"s":"")));
+  if(r.cutoff) who.appendChild(el("span","sm mut","cutoff "+r.cutoff));
+  if(r.rag_available === false) who.appendChild(tip(
+    el("span","b b-na","RETRIEVAL OFFLINE"), null,
+    "The retrieval service is not installed, so no document search ran. "
+    + "Answers come from the structured register and from exact word matches "
+    + "over the stored text."));
+  else if(r.fell_back) who.appendChild(tip(
+    el("span","b b-prop","FELL BACK"), null,
+    "Retrieval found no relevant passages, so this was answered from the "
+    + "structured register instead."));
+  bot.appendChild(who);
+
+  const prose = el("div","prose", r.answer);
+  bot.appendChild(prose);
+
+  /* Any contract named in the answer becomes a link into its review pane --
+     the chat is a way into the record, not a dead end beside it. */
+  const ids=[...new Set((r.rows||[]).map(x=>x.id||x.contract_id).filter(Boolean))];
+  const jump = r.contract_id ? [r.contract_id] : ids.slice(0,6);
+  if(jump.length){
+    const nav=el("div","links");
+    nav.appendChild(el("span","mut","Open:"));
+    jump.forEach(id=>{
+      const row=(STATE.rows||[]).find(x=>x.id===id);
+      const a=el("a",null,row?row.filename:("contract "+id));
+      a.href="#c"+id;
+      a.onclick=e=>{ e.preventDefault(); show("queue"); openContract(id); };
+      nav.appendChild(a);
+    });
+    bot.appendChild(nav);
+  }
+
+  if(r.rows && r.rows.length){
+    const d=el("details");
+    d.appendChild(el("summary","",
+      (r.engine==="rag" ? "Show the " + r.rows.length + " passage"
+                        : "Show the " + r.rows.length + " row")
+      + (r.rows.length>1?"s":"") + " this answer came from"));
+    d.appendChild(rowTable(r.rows));
+    if(r.sql){
+      const s=el("div","sqlbox");
+      s.textContent="SELECT-only \u00b7 "+r.sql;
+      d.appendChild(s);
+    }
+    bot.appendChild(d);
+  } else if(r.sql){
+    const d=el("details");
+    d.appendChild(el("summary","","Show the query that found nothing"));
+    const s=el("div","sqlbox");
+    s.textContent="SELECT-only \u00b7 "+r.sql;
+    d.appendChild(s);
+    bot.appendChild(d);
+  }
+  log.scrollTop=log.scrollHeight;
+  say(r.answer);
+}
+$("#askgo").onclick=()=>doAsk($("#q").value.trim());
+$("#q").onkeydown=e=>{ if(e.key==="Enter") doAsk($("#q").value.trim()); };
+$$("#suggest button").forEach(b=>b.onclick=()=>doAsk(b.textContent));
+
+/* ------------------------------------------------------------- models */
+async function openModels(){
+  const d = await api("/api/models");
+  $("#dlgt").textContent="Model for new extractions";
+  const body=$("#dlgb"); body.textContent="";
+  /* Lead with the fact that decides whether this selector does anything at
+     all: is something serving? A selection with no endpoint is real but
+     latent, and saying so is more useful than a model name. */
+  const ep = d.endpoint || {};
+  const status = el("div","legend");
+  status.style.borderRadius = "6px";
+  status.style.border = "1px solid var(--border-subtle)";
+  if(ep.reachable){
+    status.innerHTML = "<b>Endpoint reachable.</b> " + esc(ep.url)
+      + (ep.serving.length ? " is serving <b>" + esc(ep.serving.join(", "))
+                             + "</b>." : " answered but named no model.")
+      + " Your selection takes effect on the next extraction.";
+  } else {
+    status.innerHTML = "<b>No inference endpoint yet.</b> " + esc(ep.url)
+      + " is not answering, so the app is running on recorded output "
+      + "(<code>LLM_MODE=" + esc(d.llm_mode || "replay") + "</code>). "
+      + "A choice here is <b>stored and takes effect the moment a model is "
+      + "serving</b> — it does not change anything already on screen.";
+  }
+  body.appendChild(status);
+
+  const note=el("p","sm mut");
+  note.style.marginTop = "12px";
+  note.innerHTML="Changing this affects <b>the next extraction only</b>. "
+    + "Contracts already in the register keep the model that actually produced "
+    + "them, and each row shows which. Nothing is re-extracted retroactively.";
+  body.appendChild(note);
+  const form=el("div"); form.setAttribute("role","radiogroup");
+  form.setAttribute("aria-label","Available models");
+  form.style.marginTop="16px";
+  d.models.forEach(m=>{
+    const lab=el("label","mdl");
+    lab.setAttribute("aria-checked", m.name===d.selected?"true":"false");
+    const ip=el("input"); ip.type="radio"; ip.name="mdl"; ip.value=m.name;
+    ip.checked = m.name===d.selected; ip.disabled = !m.present;
+    const mid=el("div");
+    mid.appendChild(el("div","nm", m.label+" · "+m.quant));
+    mid.appendChild(el("div","sub",
+      m.params+" · "+m.experts+" · "+m.throughput));
+    mid.appendChild(el("div","sub", m.note));
+    if(!m.present) mid.appendChild(el("div","sub","NOT STAGED ON DISK"));
+    const right=el("div","sz");
+    right.appendChild(el("div","role", m.role));
+    if(m.present) right.appendChild(el("div",null, m.gb+" GB"));
+    lab.appendChild(ip); lab.appendChild(mid); lab.appendChild(right);
+    ip.onchange=async()=>{
+      try{
+        const r=await api("/api/models/select",{method:"POST",headers:H,
+          body:JSON.stringify({model:m.name})});
+        $("#dlg").close();
+        toast(r.warning ? "Selected "+m.label+" — "+r.warning
+                        : "Next extraction will use "+m.label+" · "+m.quant);
+        loadMeta();
+      }catch(e){ toast("Could not select: "+e.message); }
+    };
+    form.appendChild(lab);
+  });
+  body.appendChild(form);
+  $("#dlgok").hidden=true;
+  $("#dlg").showModal();
+}
+$("#modelchip").onclick=openModels;
+
+/* ------------------------------------------------------------- audit */
+async function openAudit(){
+  const [st, log] = await Promise.all([api("/api/audit"), api("/api/audit/log?limit=40")]);
+  $("#dlgt").textContent = st.ok ? "Audit chain — intact" : "Audit chain — FAILED";
+  const rows = log.map(r=>
+    "<tr><td class=\"num mono\">"+r.seq+"</td><td class=\"mono\">"
+    +esc(r.ts.slice(0,19).replace("T"," "))+"</td><td>"+esc(r.actor)
+    +"</td><td>"+esc(r.event)+"</td></tr>").join("");
+  $("#dlgb").innerHTML =
+    "<p class=\"sm\">"+esc(st.message)+" — each record commits to its "
+    + "predecessor, so altering any earlier line breaks verification from that "
+    + "point on.</p><table style=\"margin-top:12px\"><thead><tr>"
+    + "<th class=\"num\">Seq</th><th>When (UTC)</th><th>Actor</th><th>Event</th>"
+    + "</tr></thead><tbody>"+rows+"</tbody></table>";
+  $("#dlgok").hidden=true;
+  $("#dlg").showModal();
+}
+$("#auditchip").onclick=openAudit;
+
+/* ------------------------------------------------------------- upload */
+const drop=$("#drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{
+  e.preventDefault(); drop.classList.add("hot"); }));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{
+  e.preventDefault(); drop.classList.remove("hot"); }));
+drop.addEventListener("drop",e=>{
+  [...e.dataTransfer.files].forEach(upload); });
+$("#file").onchange=e=>[...e.target.files].forEach(upload);
+
+async function upload(file){
+  const fd=new FormData(); fd.append("file",file);
+  /* The drop zone reports progress. Append a status node rather than replacing
+     innerHTML -- that would destroy the <input type=file> and its handler. */
+  const status = el("div","busy");
+  status.style.marginTop = "8px";
+  status.appendChild(el("span","spinner"));
+  const label = el("span",null,"Uploading "+file.name+"\u2026");
+  status.appendChild(label);
+  drop.appendChild(status);
+  progress(true);
+
+  let landed = null;
+  try{
+    /* The POST returns 202 immediately with a job id; extraction runs on the
+       server. It used to block for ~16s per contract, and the browser aborted
+       the request -- which showed up as "Failed to fetch" on the queue polls
+       firing alongside it. */
+    const r = await fetch("/api/upload",{method:"POST",body:fd});
+    let j = await r.json();
+    if(!r.ok && !j.job) throw new Error(j.detail || (r.status+" "+r.statusText));
+
+    if(j.job){
+      label.textContent = "Extracting "+j.saved+"\u2026 this takes ~15s";
+      const started = Date.now();
+      /* Poll until done. Capped so a wedged extraction cannot spin forever;
+         the register is the durable record either way. */
+      while(j.state !== "done" && Date.now()-started < 180000){
+        await new Promise(res=>setTimeout(res,1500));
+        try{
+          const p = await fetch("/api/upload/"+j.job);
+          if(p.status===404) break;        /* already reported and forgotten */
+          j = await p.json();
+          const secs = Math.round((Date.now()-started)/1000);
+          if(j.state!=="done")
+            label.textContent = "Extracting "+j.saved+"\u2026 "+secs+"s";
+        }catch{ /* a dropped poll is not a failed upload; keep waiting */ }
+      }
+      if(j.state !== "done"){
+        toast(j.saved+" is still extracting \u2014 it will appear in the "
+              + "queue when it finishes");
+        return;
+      }
+    }
+
+    landed = j.id || null;
+    /* Report what ACTUALLY happened, never a promise about a watcher. */
+    if(j.status==="PROPOSED")
+      toast(j.saved+" extracted \u00b7 ready for review"
+            + (j.warning ? " \u00b7 "+j.warning : ""));
+    else if(j.status==="REJECTED")
+      toast(j.saved+" refused: "+(j.reason||"could not be read"));
+    else if(j.status==="DUPLICATE")
+      toast(j.saved+" \u2014 "+(j.message||"already in the register"));
+    else
+      toast(j.saved+" \u2014 "+(j.warning||"saved"));
+  }catch(e){ toast("Upload failed: "+e.message); }
+  finally{
+    status.remove();
+    progress(false);
+    await loadQueue();
+    /* Open what was just ingested: the point of dropping a file is to look
+       at it. */
+    if(landed) openContract(landed);
+  }
+}
+
+/* ------------------------------------------------------------- keyboard
+   WCAG 2.1.4: single-character shortcuts must be inert while typing, and the
+   irreversible commit is deliberately NOT bound to a bare key. */
+const KEYS = [
+  ["j","next contract"], ["k","previous contract"],
+  ["Enter / o","open the selected contract"],
+  ["g then q / r / d / a","go to Queue / Register / Deadlines / Ask"],
+  ["m","choose the model"], ["?","this help"], ["Esc","close a dialog"]
+];
+let gPending=false;
+document.addEventListener("keydown",e=>{
+  const t=e.target;
+  if(t && (t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"
+    ||t.isContentEditable)) return;                      /* never swallow typing */
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  if($("#dlg").open && e.key!=="Escape") return;
+
+  if(gPending){
+    gPending=false;
+    const map={q:"queue",r:"register",d:"deadlines",a:"ask"};
+    if(map[e.key]){ e.preventDefault(); show(map[e.key]); }
+    return;
+  }
+  if(e.key==="g"){ gPending=true; setTimeout(()=>gPending=false,1200); return; }
+  if(e.key==="?"){ e.preventDefault(); openKeys(); return; }
+  if(e.key==="m"){ e.preventDefault(); openModels(); return; }
+  if(STATE.tab!=="queue") return;
+  const ids=STATE.rows.map(r=>r.id);
+  if(!ids.length) return;
+  const i=ids.indexOf(STATE.cid);
+  if(e.key==="j"){ e.preventDefault(); openContract(ids[Math.min(i+1,ids.length-1)]??ids[0]); }
+  if(e.key==="k"){ e.preventDefault(); openContract(ids[Math.max(i-1,0)]??ids[0]); }
+  if(e.key==="o"&&STATE.cid){ e.preventDefault(); openContract(STATE.cid); }
+});
+function openKeys(){
+  $("#dlgt").textContent="Keyboard shortcuts";
+  $("#dlgb").innerHTML="<p class=\"sm mut\">Shortcuts are inactive while a text "
+    + "field has focus. Approving is deliberately not bound to a single key.</p>"
+    + "<table style=\"margin-top:12px\"><tbody>"
+    + KEYS.map(([k,d])=>"<tr><td style=\"width:180px\"><kbd>"+esc(k)
+      +"</kbd></td><td>"+esc(d)+"</td></tr>").join("")
+    + "</tbody></table>";
+  $("#dlgok").hidden=true;
+  $("#dlg").showModal();
+}
+$("#keyshelp").onclick=openKeys;
+$("#dlgx").onclick=()=>$("#dlg").close();
+
+/* ------------------------------------------------------------- boot */
+(async function init(){
+  /* skeletons, never a false "no records" while loading */
+  $("#q-needs").innerHTML='<li class="skel"></li><li class="skel"></li>';
+  try{ await loadMeta(); }catch(e){ toast("Could not read status: "+e.message); }
+  await loadQueue();          /* also refreshes the Register/Deadlines badges */
+  setInterval(loadQueue, 15000);
+})();
+</script>
+</body></html>

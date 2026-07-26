@@ -1,0 +1,19 @@
+# Normalise line endings. The target is Linux (aarch64 DGX box), and a shell
+# script that arrives with CRLF fails with a confusing `bad interpreter` error,
+# so scripts are pinned to LF regardless of the checkout platform. This repo is
+# authored on Windows and deployed over scp to Linux, which is exactly the case
+# that bites.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.env  text eol=lf
+*.md   text eol=lf
+*.html text eol=lf
+
+# Binary: never touch these.
+*.pdf  binary
+*.whl  binary
+*.png  binary
+*.jpg  binary
+*.webp binary

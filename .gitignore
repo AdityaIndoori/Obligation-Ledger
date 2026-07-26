@@ -1,0 +1,48 @@
+# --- Reproducible build inputs, not source -------------------------------
+# 71 MB of aarch64 wheels, regenerated in ~30s by the command in
+# docs/DEPLOYMENT.md. Committing platform binaries makes the repo heavy and
+# stale the moment a version moves.
+wheels/
+wheels-ocr/
+
+# --- Runtime state -------------------------------------------------------
+# The register, the audit chain and the retrieval index are OPERATIONAL data.
+# Committing them would ship someone's contracts, and a hash-chained audit log
+# means nothing outside the machine that produced it.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+audit.jsonl
+fixtures/
+runtime-data/
+rag/
+
+# --- Generated artifacts -------------------------------------------------
+outputs/
+*.ics
+memo_*.md
+
+# --- Secrets -------------------------------------------------------------
+# ledger.env and rag.env ARE committed: every value is an overridable default
+# and the tokens in them are the documented POC placeholders ('demo-token',
+# 'local'). A real deployment overrides them in the environment. Anything named
+# .env.local or *.secret is not committed under any circumstances.
+.env.local
+*.secret
+*.pem
+*.key
+
+# --- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- Editor / OS ---------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

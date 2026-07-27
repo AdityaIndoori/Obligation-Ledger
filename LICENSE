@@ -1,0 +1,41 @@
+MIT License
+
+Copyright (c) 2026 Aditya Indoori
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+NOT LEGAL ADVICE. This software extracts facts from contracts, quotes its
+sources and computes dates. It does not interpret contracts, does not give
+legal advice, and is not a substitute for a qualified professional reviewing
+the underlying documents. Every value it produces is a proposal requiring human
+approval before it reaches the register.
+
+---
+
+THIRD-PARTY COMPONENTS
+
+rag-service/ is a submodule of https://github.com/Seveyus/Obligation-Ledger-AI
+by @Seveyus, licensed MIT (declared in its pyproject.toml). It retains its own
+copyright and is not covered by the grant above.
+
+Sample-Contracts/ documents are synthetic, generated for testing. Party names,
+dates and amounts are fictional and any resemblance to a real agreement is
+coincidental.

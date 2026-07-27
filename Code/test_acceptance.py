@@ -8,6 +8,7 @@ jointly, not here.
   ./venv/bin/python test_acceptance.py            # uses http://127.0.0.1:8443
   LEDGER_URL=... LEDGER_TOKEN=... python test_acceptance.py
 """
+import datetime as dt
 import json
 import os
 import re
@@ -62,6 +63,13 @@ check("AT-2 queue is populated", len(queue) >= 4, f"{len(queue)} contracts")
 mer = next((c for c in queue if "meridian" in c["filename"]), None)
 check("AT-2 Meridian present and PROPOSED",
       mer and mer["status"] == "PROPOSED", mer["status"] if mer else "missing")
+if not mer:
+    # Crashing with "'NoneType' object is not subscriptable" three lines later
+    # blames the test for what is a missing prerequisite. AT-2 needs the sample
+    # corpus loaded; say so and stop.
+    print("\n  AT-2 cannot run: the Meridian sample is not in the queue.\n"
+          "  Load the corpus first:  ./demo_reset.sh   (or ./go_live.sh)")
+    raise SystemExit(1)
 det = get(f"/api/contract/{mer['id']}")
 fields = det["fields"]
 quoted = [f for f in fields if f["source_span"]]
@@ -75,18 +83,56 @@ dl = next((f for f in fields if f["field"] == "notice_deadline"), None)
 check("AT-2 notice_deadline is COMPUTED, not quoted",
       dl and dl["validator"] == "COMPUTED" and not dl["source_span"],
       dl["value"] if dl else "missing")
-check("AT-2 deadline is the correct arithmetic", dl and dl["value"] == "2027-01-30",
-      dl["value"] if dl else "-")
+# Derived from this contract's own term_end and notice_days rather than
+# hardcoded. The literal 2027-01-30 here was written against an earlier
+# fixture: Meridian says "December 31, 2027" and "one hundred and twenty (120)
+# days", so the correct answer is 2027-09-02 and the assertion was wrong, not
+# the arithmetic. A hardcoded date tests the fixture; this tests the rule.
+_te = next((f for f in fields if f["field"] == "term_end"), None)
+_nd = next((f for f in fields if f["field"] == "notice_days"), None)
+if dl and _te and _nd:
+    want = (dt.date.fromisoformat(_te["value"])
+            - dt.timedelta(days=int(_nd["value"]))).isoformat()
+    check("AT-2 deadline is the correct arithmetic", dl["value"] == want,
+          f"{_te['value']} - {_nd['value']}d = {want}, got {dl['value']}")
+else:
+    check("AT-2 deadline is the correct arithmetic", False,
+          "term_end or notice_days missing")
 
 # ---------------------------------------------------------------- AT-3
 print("\nAT-3  approval gate: no application path to COMMITTED but /api/decide")
 code, _ = post("/api/decide", {"id": mer["id"], "action": "approve"}, token=None)
 check("AT-3 unauthenticated approve rejected", code == 401, f"HTTP {code}")
-code, body = post("/api/decide", {"id": mer["id"], "action": "approve"})
+
+# The gate has to be tested against a contract that ACTUALLY has a failing
+# field. Using Meridian assumed the model would misread something; on a good
+# run it extracts cleanly, approve correctly returns 200, and this reported a
+# working gate as broken. Build the failure instead of hoping for it: a value
+# that is not inside its own quote is exactly what V7 exists to catch.
+import sqlite3                     # noqa: E402  -- direct seed, no test-only API
+_dbp = os.environ.get("LEDGER_DB", "/srv/ledger/data/ledger.db")
+_con = sqlite3.connect(_dbp)
+_con.execute("DELETE FROM contracts WHERE sha256='at3_gate_fixture'")
+_cur = _con.execute(
+    "INSERT INTO contracts(sha256,filename,status,validated,ingested_at,doctext)"
+    " VALUES(?,?,?,?,?,?)",
+    ("at3_gate_fixture", "AT3-GATE.pdf", "PROPOSED", 1,
+     dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+     "The term ends December 31, 2027."))
+GATE_ID = _cur.lastrowid
+_con.execute(
+    "INSERT INTO extractions(contract_id,field,value,source_span,validator,note,"
+    "span_start,span_end,page) VALUES(?,?,?,?,?,?,?,?,?)",
+    (GATE_ID, "term_end", "2099-01-01", "The term ends December 31, 2027.",
+     "FAIL", "value 2099-01-01 does not appear in its own quote", 0, 32, 1))
+_con.commit()
+_con.close()
+
+code, body = post("/api/decide", {"id": GATE_ID, "action": "approve"})
 check("AT-3 approve with a FAIL returns 409", code == 409, f"HTTP {code}")
 check("AT-3 409 explains why",
       "validation" in str(body.get("detail", "")).lower(), body.get("detail"))
-still = get(f"/api/contract/{mer['id']}")["contract"]["status"]
+still = get(f"/api/contract/{GATE_ID}")["contract"]["status"]
 check("AT-3 contract stays PROPOSED after blocked commit", still == "PROPOSED", still)
 
 # pipeline.py can only ever write PROPOSED
@@ -96,7 +142,12 @@ check("AT-3 pipeline.py contains no COMMITTED write",
 
 # ---------------------------------------------------------------- AT-3b
 print("\nAT-3b  V7: a real quote paired with a wrong value")
-bad = [f for f in fields if f["validator"] == "FAIL"]
+# Same reasoning as AT-3: this used to pick fields[0] out of whatever Meridian
+# happened to get wrong, so it tested nothing on a clean run and crashed with
+# IndexError. The seeded fixture IS the V7 case -- a genuine quote from the
+# document paired with a value that is not in it.
+gfields = get(f"/api/contract/{GATE_ID}")["fields"]
+bad = [f for f in gfields if f["validator"] == "FAIL"]
 check("AT-3b a field failed", len(bad) >= 1, f"{len(bad)} failing")
 f0 = bad[0]
 check("AT-3b the failing field's quote IS genuine",
@@ -104,7 +155,7 @@ check("AT-3b the failing field's quote IS genuine",
       "quote verified present in document")
 check("AT-3b failure reason names value-in-quote",
       "own quote" in (f0["note"] or ""), f0["note"])
-txt = get(f"/api/contract/{mer['id']}/text?start={f0['span_start']}&end={f0['span_end']}")
+txt = get(f"/api/contract/{GATE_ID}/text?start={f0['span_start']}&end={f0['span_end']}")
 quote = txt["text"][txt["quote_start"] - txt["start"]:txt["quote_end"] - txt["start"]]
 check("AT-3b quote round-trips out of stored document text",
       quote.strip() == (f0["source_span"] or "").strip(),
@@ -113,12 +164,12 @@ check("AT-3b the fabricated value is genuinely absent from its quote",
       str(f0["value"]) not in quote, f"value={f0['value']!r}")
 
 # ---------------------------------------------------------------- edit path
-print("\nAT-3c  human correction recomputes dependent arithmetic")
-code, body = post("/api/decide", {"id": mer["id"], "action": "edit",
-                                  "field": f0["field"], "value": "12",
+print("\nAT-3c  human correction unblocks commit without faking provenance")
+code, body = post("/api/decide", {"id": GATE_ID, "action": "edit",
+                                  "field": f0["field"], "value": "2027-12-31",
                                   "who": "acceptance"})
 check("AT-3c edit accepted", code == 200, str(body))
-after = get(f"/api/contract/{mer['id']}")
+after = get(f"/api/contract/{GATE_ID}")
 ef = next(f for f in after["fields"] if f["field"] == f0["field"])
 # A corrected value must NOT be flipped to PASS. PASS asserts "this value
 # appears in the quote shown"; a value a human typed has no quote at all, so
@@ -131,11 +182,32 @@ check("AT-3c correction records who and states it has no quote provenance",
       "no quote provenance" in (ef["note"] or ""), ef["note"])
 check("AT-3c a HUMAN field no longer blocks commit",
       ef["validator"] != "FAIL")
-code, body = post("/api/decide", {"id": mer["id"], "action": "approve",
+code, body = post("/api/decide", {"id": GATE_ID, "action": "approve",
                                   "who": "acceptance"})
 check("AT-3c approve now succeeds", code == 200 and body.get("status") == "COMMITTED",
       f"HTTP {code}")
-kinds = {k for k, _ in body.get("obligations", [])}
+# Obligation fan-out needs a REAL contract: the seeded gate fixture has one
+# field, so it can only ever emit one kind. Meridian carries a term end, a
+# renewal notice and an unusual term, which is what exercises all four
+# branches of the approve path.
+# Correct whatever Meridian's red field actually IS. Hardcoding notice_days
+# here corrected a field that was already passing while the real failure
+# (renewal_term_months) stayed red, so the gate rightly refused the commit and
+# the test blamed the gate for working.
+mred = [f for f in get(f"/api/contract/{mer['id']}")["fields"]
+        if f["validator"] == "FAIL"]
+check("AT-3c Meridian has the seeded red field", len(mred) >= 1,
+      f"{len(mred)} failing")
+for f in mred:
+    code, mbody = post("/api/decide",
+                       {"id": mer["id"], "action": "edit", "field": f["field"],
+                        "value": str(f["value"]), "who": "acceptance"})
+    check(f"AT-3c red field {f['field']} corrected", code == 200, str(mbody))
+code, mbody = post("/api/decide", {"id": mer["id"], "action": "approve",
+                                   "who": "acceptance"})
+check("AT-3c Meridian commits once its red field is resolved",
+      code == 200 and mbody.get("status") == "COMMITTED", f"HTTP {code}")
+kinds = {k for k, _ in mbody.get("obligations", [])}
 check("AT-3c all four obligation kinds are reachable",
       {"renewal_notice", "term_expiry", "review_flag"} <= kinds, str(sorted(kinds)))
 code, _ = post("/api/decide", {"id": mer["id"], "action": "approve"})

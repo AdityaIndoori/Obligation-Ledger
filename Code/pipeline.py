@@ -95,9 +95,16 @@ def _unvalidated_rows(data):
 
 
 def _reject(con, sha, filename, reason):
+    # decided_at is set here, not left NULL. A rejection IS a decision about
+    # the document, and the UI renders "Rejected on <date>" from this column --
+    # without it the row read "Rejected on" with a blank where the date goes.
+    # decided_by stays NULL on purpose: no human decided this, the pipeline
+    # did, and attributing it to a person would be a false provenance claim.
+    now = db.now()
     cur = con.execute(
-        "INSERT INTO contracts(sha256,filename,status,validated,ingested_at,note)"
-        " VALUES(?,?,'REJECTED',0,?,?)", (sha, filename, db.now(), reason))
+        "INSERT INTO contracts(sha256,filename,status,validated,ingested_at,"
+        "decided_at,note) VALUES(?,?,'REJECTED',0,?,?,?)",
+        (sha, filename, now, now, reason))
     cid = cur.lastrowid
     con.commit()
     audit.append("pipeline", "rejected",

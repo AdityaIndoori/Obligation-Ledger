@@ -267,7 +267,8 @@ against `ip -4 addr` first.
 | Code change had no effect | uvicorn holds the old module | restart the app (see above) |
 | Every chat answer says `FELL BACK` | contracts not indexed for retrieval | `python rag_backfill.py` |
 | Chat says `RETRIEVAL OFFLINE` | the service on :8001 is down | start it; the app still answers from the register |
-| Extraction fails with a 404 | model id ≠ what vLLM serves | `curl localhost:8000/v1/models` and compare |
+| Header shows `MODEL NOT SERVED` | selected model's weights are not loaded by vLLM | pick a served model in the header, or restart vLLM with those weights |
+| `is not loaded by the inference endpoint` | same cause, seen at extraction time | the message names what *is* being served — select that |
 | `REJECTED: no text layer` | scanned PDF, no extractable text | expected — OCR is out of scope, see [Limits](#what-this-is-not) |
 | Approve is greyed out | a field failed verification | fix the red field; the error summary links to it |
 | Register looks empty after clicking around | contracts soft-deleted | `./unarchive.sh --list`, then `./unarchive.sh` |
@@ -285,9 +286,13 @@ python test_acceptance.py   # 53 checks: AT-2, AT-3, AT-3b/c, AT-4/5/7/9/10
 ./test_chat.sh              # SELECT-only invariant under hostile input
 ./test_delete.sh            # soft delete keeps the audit chain intact
 ./test_rag.sh               # retrieval is primary; our validators still gate
+python test_model_resolution.py   # the selected model is the one that answers
 ```
 
-`test_acceptance.py` needs the app running. The rest are self-contained.
+`test_acceptance.py` needs the app running **and the corpus loaded**
+(`./demo_reset.sh`); it says so and stops if the corpus is missing.
+`test_model_resolution.py` needs a live endpoint and skips without one. The
+rest are self-contained.
 
 ---
 
@@ -308,7 +313,7 @@ Code/
   memo.py            deterministic memo from committed data only
   static/ui.html     the whole UI: vanilla JS, zero CDN, zero webfonts
   *.sh               operational scripts
-  test_*             seven suites
+  test_*             eight suites
 Sample-Contracts/    11 PDFs spanning the interesting failure modes
 rag-service/         submodule: the retrieval service (@Seveyus, MIT)
 docs/                deployment, RAG integration, implementation log

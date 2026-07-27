@@ -827,6 +827,16 @@ async function loadMeta(){
     $("#modelprefix").textContent = m.llm_mode === "record" ? "recording:" : "";
     if(m.llm_mode === "record"){
       mode.className = "chip warn"; mode.textContent = "RECORDING to fixtures";
+    } else if(m.llm_mode === "live" && m.model_served === false){
+      /* Selected, on disk, and NOT loaded by the endpoint. This chip used to
+         read green "live inference" off the mode alone, so the header looked
+         healthy while every extraction was being refused. The mode says what
+         we intend; model_served says what will actually answer. */
+      mode.className = "chip bad";
+      mode.textContent = "MODEL NOT SERVED — extraction will fail";
+      mode.title = "This model is staged on disk but the inference endpoint "
+                 + "has different weights loaded. Pick a served model, or "
+                 + "restart vLLM with these.";
     } else {
       mode.className = "chip ok"; mode.textContent = "live inference";
     }
@@ -839,8 +849,16 @@ async function loadMeta(){
      because loadMeta() re-runs. */
   tip(a, null, GLOSSARY["audit chain"]).classList.add("tip-l");
   tip($("#air"), "air-gapped");
-  tip($("#mode"), null, m.llm_mode === "live"
-      ? GLOSSARY["live inference"] : GLOSSARY.REPLAY).classList.add("tip-l");
+  /* The definition must match what the chip SAYS. When the model is not being
+     served, the chip is not describing live inference, so attaching that
+     glossary entry would explain the wrong thing to a screen reader. */
+  tip($("#mode"), null,
+      m.llm_mode !== "live" ? GLOSSARY.REPLAY
+      : m.model_served === false
+        ? "The chosen model is on disk but the inference endpoint has other "
+          + "weights loaded, so extraction is refused rather than answered by "
+          + "a different model than the one named here."
+        : GLOSSARY["live inference"]).classList.add("tip-l");
   /* Show the handful people actually drop, and put the full 32 behind a
      disclosure. A wall of chips is noise on the screen you look at most. */
   const COMMON = ["pdf","docx","doc","txt","rtf","odt","xlsx","eml","zip"];
@@ -867,9 +885,15 @@ function factLine(r){
   return bits.join(" · ");      /* counts, never a score */
 }
 function metaLine(r){
-  const bits=["."+(r.fmt||"?")];
+  /* '.?' is not a fact about a document -- it is us admitting we did not
+     record the format, printed as though it were data. Omit it instead. */
+  const bits = r.fmt ? ["."+r.fmt] : [];
   if(r.converted_via) bits.push("via "+r.converted_via);
-  if(!r.validated) bits.push("validation disabled");
+  /* Same distinction as the detail card: on a REJECTED row the validators were
+     not switched off, they had nothing to check because extraction never
+     produced values. 'validation disabled' there reads as a deliberate
+     bypass of the credibility layer, which is not what happened. */
+  if(!r.validated && r.status !== "REJECTED") bits.push("validation disabled");
   if(r.llm_mode && r.llm_mode!=="live") bits.push(r.llm_mode);
   if(r.model) bits.push(r.model.split("/").pop());
   return bits.join(" · ");
@@ -1022,7 +1046,13 @@ async function openContract(cid){
 
   const card = el("div","card"); card.id="c"+cid;
   const h = el("h2"); h.appendChild(el("span",null,c.filename));
-  if(!c.validated) h.appendChild(el("span","b b-na","VALIDATION DISABLED"));
+  /* "VALIDATION DISABLED" is a claim that the validators were deliberately
+     switched off, which is a different and much more alarming thing than what
+     happened to a REJECTED document: extraction never produced values for the
+     validators to check. Saying "disabled" there implies we chose to skip the
+     credibility layer on this file. We did not. */
+  if(!c.validated && c.status !== "REJECTED")
+    h.appendChild(el("span","b b-na","VALIDATION DISABLED"));
   if(c.llm_mode && c.llm_mode!=="live")
     h.appendChild(el("span","b b-prop", c.llm_mode.toUpperCase()));
   h.appendChild(el("span","spacer"));
@@ -1031,13 +1061,19 @@ async function openContract(cid){
   card.appendChild(h);
 
   /* Persistent scope-of-check statement. Not a tooltip, not a footer: a
-     disclaimer people can't see is a disclaimer that doesn't work. */
-  const lg = el("div","legend");
-  lg.innerHTML = "<b>QUOTE MATCHED</b> means the value appears in the text it "
-    + "cites — not that the model cited the right clause. "
-    + "<b>COMPUTED</b> was calculated in code. "
-    + "<b>SET BY REVIEWER</b> has no quote. Check each quote before approving.";
-  card.appendChild(lg);
+     disclaimer people can't see is a disclaimer that doesn't work.
+
+     Suppressed when there are no fields, as on a REJECTED document: explaining
+     what QUOTE MATCHED means above an empty card describes checks that never
+     ran, and pushes the actual reason for the rejection further down the page. */
+  if(fields.length){
+    const lg = el("div","legend");
+    lg.innerHTML = "<b>QUOTE MATCHED</b> means the value appears in the text it "
+      + "cites — not that the model cited the right clause. "
+      + "<b>COMPUTED</b> was calculated in code. "
+      + "<b>SET BY REVIEWER</b> has no quote. Check each quote before approving.";
+    card.appendChild(lg);
+  }
 
   if(c.note){
     const n=el("div","pad sm"); n.style.color="var(--fail)"; n.textContent=c.note;

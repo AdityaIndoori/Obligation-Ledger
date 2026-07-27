@@ -203,10 +203,26 @@ def extract(doctext, mode=None, retrieved=None, model=None):
     # Resolve the id the endpoint will actually accept. vLLM's
     # --served-model-name rarely matches the HF repo id, so sending the
     # catalog name would 404.
+    #
+    # In live mode a model that is not being served has NO valid wire id, and
+    # guessing one produces exactly the failure this replaces: a 404 reported
+    # as "endpoint unreachable", which sends you looking at the network when
+    # the endpoint is up and simply does not have that model loaded.
     try:
         import models
-        wire = models.wire_name(model)
-    except Exception:                                    # noqa: BLE001
+        if mode == "live":
+            wire = models.live_wire(model)
+            if not wire:
+                served = [s.get("id") for s in models.served() if s.get("id")]
+                raise ExtractionUnavailable(
+                    f"{model} is not loaded by the inference endpoint. "
+                    + (f"It is currently serving: {', '.join(served)}. "
+                       "Select that model in the UI, or restart vLLM with these "
+                       "weights." if served
+                       else "No model is being served at all -- start vLLM."))
+        else:
+            wire = models.wire_name(model)
+    except ImportError:
         wire = model
 
     last, guided = None, True
@@ -215,6 +231,20 @@ def extract(doctext, mode=None, retrieved=None, model=None):
             raw = _call(msgs, wire, schema=JSON_SCHEMA if guided else None)
             data = _parse(raw)
             break
+        except urllib.error.HTTPError as exc:
+            # The endpoint ANSWERED, with a refusal. Reporting this as
+            # "unreachable" (HTTPError subclasses URLError, so it used to fall
+            # into the branch below) blames the network for a request the
+            # server rejected. Read the body: vLLM explains itself there.
+            try:
+                detail = json.loads(exc.read()).get("error", {})
+                detail = (detail.get("message") if isinstance(detail, dict)
+                          else str(detail)) or ""
+            except Exception:                                    # noqa: BLE001
+                detail = ""
+            raise ExtractionUnavailable(
+                f"endpoint refused the request (HTTP {exc.code}) for model "
+                f"'{wire}'" + (f": {detail[:200]}" if detail else ""))
         except (urllib.error.URLError, OSError) as exc:
             raise ExtractionUnavailable(f"model endpoint unreachable: {exc}")
         except Exception as exc:

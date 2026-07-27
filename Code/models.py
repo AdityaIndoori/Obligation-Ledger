@@ -206,6 +206,25 @@ def wire_name(name=None):
     return name
 
 
+def live_wire(name=None):
+    """The wire id if the endpoint is serving this model RIGHT NOW, else None.
+
+    Deliberately distinct from wire_name(), which falls back to the catalog
+    name so record/replay fixtures still record something meaningful. In live
+    mode that fallback is a guaranteed 404: it sends a HuggingFace repo id to
+    an endpoint that only answers to its --served-model-name. The live path
+    must ask this question instead, and refuse rather than guess -- silently
+    substituting whatever IS served would attribute one model's output to
+    another in the register, which is the one thing model selection promises
+    never to do.
+    """
+    name = name or selected()
+    for entry in staged():
+        if entry["name"] == name:
+            return entry["served_as"]
+    return None
+
+
 DEFAULT_MODEL = "Qwen/Qwen3.6-35B-A3B-FP8"
 
 

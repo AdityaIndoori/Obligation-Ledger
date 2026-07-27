@@ -45,8 +45,15 @@ def meta():
     import models
     ok, msg = audit.verify()
     cur = models.selected()
+    # Whether the selection is ACTUALLY answerable, not just chosen. The header
+    # claimed "live inference" purely from LLM_MODE, so it read green while
+    # every extraction 404'd on a model the endpoint had never loaded. A mode
+    # is an intention; this is the fact.
+    served = models.live_wire(cur) if LLM_MODE == "live" else None
     return {"model": cur, "model_info": models.describe(cur),
             "llm_mode": LLM_MODE, "airgapped": True,
+            "model_served": served is not None,
+            "served_as": served,
             "audit_ok": ok, "audit_message": msg,
             "formats": [e.lstrip(".") for e in ingest.supported_extensions()]}
 
@@ -109,6 +116,24 @@ def select_model(body: dict, authorization: str = Header(None)):
                              "warning": "model is not staged on disk; "
                                         "extraction will fail until it is"},
                             status_code=202)
+    if entry and not entry["live"]:
+        # On disk, but the endpoint has different weights loaded. This is the
+        # trap that produced a 404 mislabelled "endpoint unreachable": the
+        # selection looked valid everywhere until the next extraction ran.
+        # Warn at the moment of choosing, when it is still cheap to change.
+        serving = [s.get("id") for s in models.served() if s.get("id")]
+        audit.append("ui:model", "model_selected",
+                     {"model": name, "staged": True, "served": False})
+        return JSONResponse(
+            {"selected": name, "staged": True, "served": False,
+             "info": models.describe(name),
+             "warning": "these weights are on disk but the inference endpoint "
+                        "is not serving them" + (
+                            f" (it is serving: {', '.join(serving)})"
+                            if serving else "")
+                        + "; extraction will be refused until vLLM is "
+                          "restarted with them"},
+            status_code=202)
     audit.append("ui:model", "model_selected", {"model": name, "staged": True})
     return {"selected": name, "staged": True, "info": models.describe(name)}
 
